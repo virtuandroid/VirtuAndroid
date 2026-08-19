@@ -35,11 +35,13 @@ android {
         buildConfig = true
     }
 }
+
 val apkFile = project.layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
 val virtualXposedPackage = "io.va.exposed64"
 val tmpApkPath = "/data/local/tmp/${project.name}.apk"
 val internalApkPath = "/data/user/0/$virtualXposedPackage/cache/${project.name}.apk"
 
+// TODO Move to gradle dependency?
 val restartXposed = tasks.register<Exec>(
     "restartXposed",
 ) {
@@ -50,21 +52,13 @@ val restartXposed = tasks.register<Exec>(
         "-n", "$virtualXposedPackage/.dev.CmdReceiver"
     )
 }
-val pushApkToTmp = tasks.register<Exec>(
+val pushApkToTmp = tasks.register<PushApkTask>(
     "pushApkToTmp",
 ) {
-    dependsOn(tasks["assembleDebug"])
+    dependsOn(tasks.getByName("assembleDebug"))
 
-    val apk = apkFile.get().asFile
-    check(apk.exists()) {
-        "APK not found: ${apk.absolutePath}"
-    }
-
-    commandLine(
-        "adb", "push",
-        apk.absolutePath,
-        tmpApkPath
-    )
+    apk.set(apkFile)
+    destination.set(tmpApkPath)
 }
 
 val pushApkToXposed = tasks.register<Exec>(
@@ -80,6 +74,32 @@ val pushApkToXposed = tasks.register<Exec>(
         "cp $tmpApkPath $internalApkPath",
     )
 }
+
+
+abstract class PushApkTask : Exec() {
+    @get:InputFile
+    abstract val apk: RegularFileProperty
+
+    @get:Input
+    abstract val destination: Property<String>
+
+    @TaskAction
+    fun push() {
+        val apk = apk.get().asFile
+        check(apk.exists()) {
+            "APK not found: ${apk.absolutePath}"
+        }
+
+        commandLine(
+            "adb",
+            "push",
+            apk.absolutePath,
+            destination.get()
+        )
+        super.exec()
+    }
+}
+
 
 tasks.register<Exec>(
     "installToXposed",
