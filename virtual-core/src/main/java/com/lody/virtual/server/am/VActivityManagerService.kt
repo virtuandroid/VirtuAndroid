@@ -789,9 +789,7 @@ class VActivityManagerService : IActivityManager.Stub() {
             return false
         }
 
-        app.client = client
-        app.appThread = thread
-        app.pid = pid
+        app.update(pid, thread, client)
 
         processTable.update {
             it.set(app)

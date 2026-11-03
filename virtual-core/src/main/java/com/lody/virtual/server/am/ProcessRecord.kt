@@ -8,23 +8,39 @@ import com.lody.virtual.client.IVClient
 import com.lody.virtual.os.VUserHandle
 import java.util.concurrent.CopyOnWriteArraySet
 
-// TODO make immutable!
 class ProcessRecord(// all about the first app in the process
     val info: ApplicationInfo?, // name of the process
     val processName: String?, var vuid: Int, var vpid: Int
 ) : Binder(), Comparable<ProcessRecord?> {
     val lock: ConditionVariable = ConditionVariable()
     val pkgList: CopyOnWriteArraySet<String?> = CopyOnWriteArraySet() // List of packages
-    @Volatile
+
+    @get:Synchronized
     var client: IVClient? = null
-    @Volatile
+        private set
+
+    @get:Synchronized
     var appThread: IInterface? = null
-    @Volatile
+        private set
+
+    @get:Synchronized
     var pid: Int = 0
+        private set
+
     val userId: Int = VUserHandle.getUserId(vuid)
+
     @Volatile
     var doneExecuting: Boolean = false
+
     val priority: Int = 0
+
+    @Synchronized
+    fun update(pid: Int, thread: IInterface?, client: IVClient) {
+        this.pid = pid
+        this.appThread = thread
+        this.client = client
+    }
+
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
