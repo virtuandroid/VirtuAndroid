@@ -1,91 +1,91 @@
-package com.lody.virtual.server.accounts;
+package com.lody.virtual.server.accounts
 
-import android.accounts.Account;
-import android.os.Parcel;
-import android.os.Parcelable;
-
-import java.util.HashMap;
-import java.util.Map;
+import android.accounts.Account
+import android.os.Parcel
+import android.os.Parcelable
+import kotlinx.collections.immutable.PersistentMap
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toPersistentMap
 
 /**
  * @author Lody
  */
+data class VAccount(
+    val userId: Int,
+    val name: String,
+    val previousName: String? = null,
+    val type: String,
+    val password: String? = null,
+    val lastAuthenticatedTime: Long = 0,
+    val authTokens: PersistentMap<String?, String?> = persistentMapOf(),
+    val userDatas: PersistentMap<String?, String?> = persistentMapOf(),
+) : Parcelable {
+    constructor(userId: Int, account: Account) : this(
+        userId = userId,
+        name = account.name,
+        type = account.type,
+    )
 
-public class VAccount implements Parcelable {
-    public static final Parcelable.Creator<VAccount> CREATOR = new Parcelable.Creator<VAccount>() {
-        @Override
-        public VAccount createFromParcel(Parcel source) {
-            return new VAccount(source);
+    constructor(p: Parcel) : this(
+        userId = p.readInt(),
+        name = p.readString()!!,
+        previousName = p.readString(),
+        type = p.readString()!!,
+        password = p.readString(),
+        lastAuthenticatedTime = p.readLong(),
+        authTokens = p.readInt().let { authTokensSize ->
+            val map = HashMap<String?, String?>(authTokensSize)
+            repeat(authTokensSize) {
+                val key = p.readString()
+                val value = p.readString()
+                map[key] = value
+            }
+            map.toPersistentMap()
+        },
+        userDatas = p.readInt().let { userDatasSize ->
+            val map = HashMap<String?, String?>(userDatasSize)
+            repeat(userDatasSize) {
+                val key = p.readString()
+                val value = p.readString()
+                map[key] = value
+            }
+            map.toPersistentMap()
         }
+    )
 
-        @Override
-        public VAccount[] newArray(int size) {
-            return new VAccount[size];
-        }
-    };
-    public int userId;
-    public String name;
-    public String previousName;
-    public String type;
-    public String password;
-    public long lastAuthenticatedTime;
-    public Map<String, String> authTokens;
-    public Map<String, String> userDatas;
-
-
-    public VAccount(int userId, Account account) {
-        this.userId = userId;
-        name = account.name;
-        type = account.type;
-        authTokens = new HashMap<>();
-        userDatas = new HashMap<>();
+    override fun describeContents(): Int {
+        return 0
     }
 
-    public VAccount(Parcel in) {
-        userId = in.readInt();
-        name = in.readString();
-        previousName = in.readString();
-        type = in.readString();
-        password = in.readString();
-        lastAuthenticatedTime = in.readLong();
-        int authTokensSize = in.readInt();
-        authTokens = new HashMap<>(authTokensSize);
-        for (int i = 0; i < authTokensSize; i++) {
-            String key = in.readString();
-            String value = in.readString();
-            authTokens.put(key, value);
+    override fun writeToParcel(dest: Parcel, flags: Int) {
+        dest.writeInt(userId)
+        dest.writeString(name)
+        dest.writeString(previousName)
+        dest.writeString(type)
+        dest.writeString(password)
+        dest.writeLong(lastAuthenticatedTime)
+        dest.writeInt(authTokens.size)
+        for ((key, value) in authTokens) {
+            dest.writeString(key)
+            dest.writeString(value)
         }
-        int userDatasSize = in.readInt();
-        userDatas = new HashMap<>(userDatasSize);
-        for (int i = 0; i < userDatasSize; i++) {
-            String key = in.readString();
-            String value = in.readString();
-            userDatas.put(key, value);
+        dest.writeInt(userDatas.size)
+        for ((key, value) in userDatas) {
+            dest.writeString(key)
+            dest.writeString(value)
         }
     }
 
-    @Override
-    public int describeContents() {
-        return 0;
-    }
+    companion object {
+        @JvmField
+        val CREATOR: Parcelable.Creator<VAccount?> = object : Parcelable.Creator<VAccount?> {
+            override fun createFromParcel(source: Parcel): VAccount {
+                return VAccount(source)
+            }
 
-    @Override
-    public void writeToParcel(Parcel dest, int flags) {
-        dest.writeInt(userId);
-        dest.writeString(name);
-        dest.writeString(previousName);
-        dest.writeString(type);
-        dest.writeString(password);
-        dest.writeLong(lastAuthenticatedTime);
-        dest.writeInt(authTokens.size());
-        for (Map.Entry<String, String> entry : authTokens.entrySet()) {
-            dest.writeString(entry.getKey());
-            dest.writeString(entry.getValue());
-        }
-        dest.writeInt(userDatas.size());
-        for (Map.Entry<String, String> entry : userDatas.entrySet()) {
-            dest.writeString(entry.getKey());
-            dest.writeString(entry.getValue());
+            override fun newArray(size: Int): Array<VAccount?> {
+                return arrayOfNulls(size)
+            }
         }
     }
 }

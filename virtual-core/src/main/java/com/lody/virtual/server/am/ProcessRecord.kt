@@ -8,6 +8,7 @@ import com.lody.virtual.client.IVClient
 import com.lody.virtual.os.VUserHandle
 import java.util.concurrent.CopyOnWriteArraySet
 
+// TODO make immutable!
 class ProcessRecord(// all about the first app in the process
     val info: ApplicationInfo?, // name of the process
     val processName: String?, var vuid: Int, var vpid: Int

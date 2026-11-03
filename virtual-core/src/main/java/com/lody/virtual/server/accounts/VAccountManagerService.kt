@@ -21,9 +21,7 @@ import android.os.RemoteException
 import android.os.SystemClock
 import android.text.TextUtils
 import android.util.AttributeSet
-import android.util.SparseArray
 import android.util.Xml
-import androidx.core.util.size
 import com.lody.virtual.IntentHelper.INTENT_USER_ID
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.helper.compat.AccountManagerCompat
@@ -34,12 +32,18 @@ import com.lody.virtual.server.IAccountManager
 import com.lody.virtual.server.am.VActivityManagerService
 import com.lody.virtual.server.pm.VPackageManagerService
 import com.lody.virtual.server.security.SecurityUtils.enforceCallingUser
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toPersistentList
+import kotlinx.collections.immutable.toPersistentMap
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import mirror.com.android.internal.R_Hide
 import org.xmlpull.v1.XmlPullParser
 import timber.log.Timber
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.lang.String.format
 import java.util.LinkedList
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
@@ -50,13 +54,28 @@ import kotlin.math.abs
  * @author Lody
  */
 class VAccountManagerService : IAccountManager.Stub() {
-    // TODO refactor to accounts by UID
+    // TODO check visibility
     // TODO remove accounts on app uninstall
-    private val accountsByUserId = SparseArray<MutableList<VAccount>>()
+    private val accountTable: MutableStateFlow<VAccountTable> =
+        MutableStateFlow(VAccountTable.EMPTY)
+
+    // Small helper function to get the result of an update after performing the update
+    private fun <T> MutableStateFlow<T>.updateWithResult(updateFunction: (T) -> Pair<Boolean, T>): Boolean {
+        var result = false
+        this.update {
+            val response = updateFunction.invoke(it)
+            result = response.first
+            response.second
+        }
+        return result
+    }
+
     private val authTokenRecords = LinkedList<AuthTokenRecord>()
     private val mSessions = LinkedHashMap<String, Session>()
     private val cache = AuthenticatorCache()
-    private val mContext: Context = VirtualCore.get().context
+    private val mContext by lazy {
+        VirtualCore.get().context
+    }
     private var lastAccountChangeTime: Long = 0
 
 
@@ -105,14 +124,7 @@ class VAccountManagerService : IAccountManager.Stub() {
 
     override fun getPreviousName(userId: Int, account: Account): String? {
         enforceCallingUser(userId)
-        synchronized(accountsByUserId) {
-            var previousName: String? = null
-            val vAccount = getAccount(userId, account)
-            if (vAccount != null) {
-                previousName = vAccount.previousName
-            }
-            return previousName
-        }
+        return accountTable.value.getAccount(userId, account)?.previousName
     }
 
 
@@ -123,20 +135,12 @@ class VAccountManagerService : IAccountManager.Stub() {
     }
 
 
-    private fun getAccountList(userId: Int, type: String?): List<Account?> {
+    private fun getAccountList(userId: Int, type: String?): List<Account> {
         enforceCallingUser(userId)
-        synchronized(accountsByUserId) {
-            val accounts: MutableList<Account?> = ArrayList()
-            val vAccounts = accountsByUserId.get(userId)
-            if (vAccounts != null) {
-                for (vAccount in vAccounts) {
-                    if (type == null || vAccount.type == type) {
-                        accounts.add(Account(vAccount.name, vAccount.type))
-                    }
-                }
-            }
-            return accounts
-        }
+        return accountTable.value.getAccounts(userId)
+            .orEmpty()
+            .filter { type == null || it.type == type }
+            .map { Account(it.name, it.type) }
     }
 
     @Throws(RemoteException::class)
@@ -161,7 +165,7 @@ class VAccountManagerService : IAccountManager.Stub() {
         enforceCallingUser(userId)
         try {
             if (account == null) {
-                Timber.w( "getAuthToken called with null account")
+                Timber.w("getAuthToken called with null account")
                 response.onError(AccountManager.ERROR_CODE_BAD_ARGUMENTS, "account is null")
                 return
             }
@@ -196,18 +200,15 @@ class VAccountManagerService : IAccountManager.Stub() {
             loginOptions.putBoolean(AccountManagerCompat.KEY_NOTIFY_ON_FAILURE, true)
         }
         if (!customTokens) {
-            val vAccount: VAccount?
-            synchronized(accountsByUserId) {
-                vAccount = getAccount(userId, account)
-                val authToken = vAccount?.authTokens?.get(authTokenType)
-                if (authToken != null) {
-                    val result = Bundle()
-                    result.putString(AccountManager.KEY_AUTHTOKEN, authToken)
-                    result.putString(AccountManager.KEY_ACCOUNT_NAME, account.name)
-                    result.putString(AccountManager.KEY_ACCOUNT_TYPE, account.type)
-                    onResult(response, result)
-                    return
-                }
+            val vAccount = accountTable.value.getAccount(userId, account)
+            val authToken = vAccount?.authTokens?.get(authTokenType)
+            if (authToken != null) {
+                val result = Bundle()
+                result.putString(AccountManager.KEY_AUTHTOKEN, authToken)
+                result.putString(AccountManager.KEY_ACCOUNT_NAME, account.name)
+                result.putString(AccountManager.KEY_ACCOUNT_TYPE, account.type)
+                onResult(response, result)
+                return
             }
         }
         if (customTokens) {
@@ -250,18 +251,23 @@ class VAccountManagerService : IAccountManager.Stub() {
                             return
                         }
                         if (!customTokens) {
-                            synchronized(accountsByUserId) {
-                                var account = getAccount(userId, name, type)
-                                if (account == null) {
-                                    var accounts = accountsByUserId.get(userId)
-                                    if (accounts == null) {
-                                        accounts = mutableListOf()
-                                        accountsByUserId.put(userId, accounts)
-                                    }
-                                    account = VAccount(userId, Account(name!!, type!!))
-                                    accounts.add(account)
-                                    saveAllAccounts()
+                            var added = false
+                            accountTable.update { state ->
+                                // Only add an account if it does not exist
+                                if (state.getAccount(userId, name, type) == null) {
+                                    val result = state.addAccount(
+                                        userId,
+                                        VAccount(userId, Account(name!!, type!!))
+                                    )
+                                    added = true
+                                    result
+                                } else {
+                                    state
                                 }
+                            }
+
+                            if (added) {
+                                saveAllAccounts()
                             }
                         }
                         val expiryMillis = result.getLong(
@@ -302,24 +308,30 @@ class VAccountManagerService : IAccountManager.Stub() {
 
     private fun setPasswordInternal(userId: Int, account: Account, password: String?) {
         enforceCallingUser(userId)
-        synchronized(accountsByUserId) {
-            val vAccount = getAccount(userId, account)
-            if (vAccount != null) {
-                vAccount.password = password
-                vAccount.authTokens.clear()
-                saveAllAccounts()
-                synchronized(authTokenRecords) {
-                    val iterator = authTokenRecords.iterator()
-                    while (iterator.hasNext()) {
-                        val record = iterator.next()
-                        if (record.userId == userId && record.account == account) {
-                            iterator.remove()
-                        }
-                    }
-                }
-                sendAccountsChangedBroadcast(userId)
+
+        val changed = accountTable.updateWithResult { state ->
+            state.modifyAccount(userId, account) { vAccount ->
+                vAccount.copy(
+                    password = password,
+                    authTokens = persistentMapOf(),
+                )
             }
         }
+
+        if (changed) {
+            saveAllAccounts()
+            synchronized(authTokenRecords) {
+                val iterator = authTokenRecords.iterator()
+                while (iterator.hasNext()) {
+                    val record = iterator.next()
+                    if (record.userId == userId && record.account == account) {
+                        iterator.remove()
+                    }
+                }
+            }
+        }
+
+        sendAccountsChangedBroadcast(userId)
     }
 
     override fun setAuthToken(
@@ -329,25 +341,34 @@ class VAccountManagerService : IAccountManager.Stub() {
         authToken: String?
     ) {
         enforceCallingUser(userId)
-        synchronized(accountsByUserId) {
-            val vAccount = getAccount(userId, account)
-            if (vAccount != null) {
+
+        val changed = accountTable.updateWithResult { state ->
+            state.modifyAccount(userId, account) { vAccount ->
                 // FIXME: cancelNotification
-                vAccount.authTokens[authTokenType] = authToken
-                this.saveAllAccounts()
+                vAccount.copy(
+                    authTokens = vAccount.authTokens.putting(authTokenType, authToken),
+                )
             }
+        }
+
+        if (changed) {
+            saveAllAccounts()
         }
     }
 
 
     override fun setUserData(userId: Int, account: Account, key: String, value: String?) {
         enforceCallingUser(userId)
-        val vAccount = getAccount(userId, account)
-        if (vAccount != null) {
-            synchronized(accountsByUserId) {
-                vAccount.userDatas[key] = value
-                saveAllAccounts()
+        val changed = accountTable.updateWithResult { state ->
+            state.modifyAccount(userId, account) { vAccount ->
+                vAccount.copy(
+                    authTokens = vAccount.userDatas.putting(key, value),
+                )
             }
+        }
+
+        if (changed) {
+            saveAllAccounts()
         }
     }
 
@@ -447,24 +468,14 @@ class VAccountManagerService : IAccountManager.Stub() {
 
     override fun getPassword(userId: Int, account: Account): String? {
         enforceCallingUser(userId)
-        synchronized(accountsByUserId) {
-            val vAccount = getAccount(userId, account)
-            if (vAccount != null) {
-                return vAccount.password
-            }
-            return null
-        }
+
+        return accountTable.value.getAccount(userId, account)?.password
     }
 
     override fun getUserData(userId: Int, account: Account, key: String): String? {
         enforceCallingUser(userId)
-        synchronized(accountsByUserId) {
-            val vAccount = getAccount(userId, account)
-            if (vAccount != null) {
-                return vAccount.userDatas[key]
-            }
-            return null
-        }
+
+        return accountTable.value.getAccount(userId, account)?.userDatas?.get(key)
     }
 
     override fun editProperties(
@@ -622,7 +633,7 @@ class VAccountManagerService : IAccountManager.Stub() {
         userId: Int,
         response: IAccountManagerResponse,
         accountToRename: Account,
-        newName: String?
+        newName: String
     ) {
         enforceCallingUser(userId)
         val resultingAccount = renameAccountInternal(userId, accountToRename, newName)
@@ -701,63 +712,59 @@ class VAccountManagerService : IAccountManager.Stub() {
     }
 
     private fun removeAccountInternal(userId: Int, account: Account): Boolean {
-        val accounts = accountsByUserId.get(userId)
-        if (accounts != null) {
-            val iterator: MutableIterator<VAccount> = accounts.iterator()
-            while (iterator.hasNext()) {
-                val vAccount = iterator.next()
-                if (userId == vAccount.userId && TextUtils.equals(vAccount.name, account.name)
-                    && TextUtils.equals(account.type, vAccount.type)
-                ) {
-                    iterator.remove()
-                    saveAllAccounts()
-                    sendAccountsChangedBroadcast(userId)
-                    return true
-                }
-            }
+        val removed = accountTable.updateWithResult { state ->
+            state.removeAccount(userId, account.name, account.type)
         }
-        return false
+
+        if (removed) {
+            saveAllAccounts()
+            sendAccountsChangedBroadcast(userId)
+        }
+
+        return removed
     }
 
 
     override fun accountAuthenticated(userId: Int, account: Account): Boolean {
         enforceCallingUser(userId)
-        synchronized(accountsByUserId) {
-            val vAccount = getAccount(userId, account)
-            if (vAccount != null) {
-                vAccount.lastAuthenticatedTime = System.currentTimeMillis()
-                saveAllAccounts()
-                return true
+
+        val changed = accountTable.updateWithResult { state ->
+            state.modifyAccount(userId, account) { vAccount ->
+                vAccount.copy(lastAuthenticatedTime = System.currentTimeMillis())
             }
-            return false
         }
+
+        if (changed) {
+            saveAllAccounts()
+        }
+
+        return changed
     }
 
     override fun invalidateAuthToken(userId: Int, accountType: String, authToken: String) {
         enforceCallingUser(userId)
-        synchronized(accountsByUserId) {
-            val accounts = accountsByUserId.get(userId)
-            if (accounts != null) {
-                var changed = false
-                for (account in accounts) {
-                    if (account.type == accountType) {
-                        account.authTokens.values.remove(authToken)
-                        changed = true
-                    }
-                }
-                if (changed) {
-                    saveAllAccounts()
+        val changed = accountTable.updateWithResult { state ->
+            state.modifyAccounts(userId) { vAccount ->
+                if (vAccount.type == accountType) {
+                    vAccount.copy(authTokens = vAccount.authTokens.removing(authToken))
+                } else {
+                    vAccount
                 }
             }
-            synchronized(authTokenRecords) {
-                val iterator = authTokenRecords.iterator()
-                while (iterator.hasNext()) {
-                    val record = iterator.next()
-                    if (record.userId == userId && record.authTokenType == accountType
-                        && record.authToken == authToken
-                    ) {
-                        iterator.remove()
-                    }
+        }
+
+        if (changed) {
+            saveAllAccounts()
+        }
+
+        synchronized(authTokenRecords) {
+            val iterator = authTokenRecords.iterator()
+            while (iterator.hasNext()) {
+                val record = iterator.next()
+                if (record.userId == userId && record.authTokenType == accountType
+                    && record.authToken == authToken
+                ) {
+                    iterator.remove()
                 }
             }
         }
@@ -767,39 +774,40 @@ class VAccountManagerService : IAccountManager.Stub() {
     private fun renameAccountInternal(
         userId: Int,
         accountToRename: Account,
-        newName: String?
+        newName: String
     ): Account {
         // TODO: Cancel Notification
-        synchronized(accountsByUserId) {
-            val vAccount = getAccount(userId, accountToRename)
-            if (vAccount != null) {
-                vAccount.previousName = vAccount.name
-                vAccount.name = newName
-                saveAllAccounts()
-                val newAccount = Account(vAccount.name, vAccount.type)
-                synchronized(authTokenRecords) {
-                    for (record in authTokenRecords) {
-                        if (record.userId == userId && record.account == accountToRename) {
-                            record.account = newAccount
-                        }
+        var foundAccount: VAccount? = null
+        accountTable.update { state ->
+            val result = state.modifyAccount(userId, accountToRename) { vAccount ->
+                vAccount.copy(name = newName, previousName = vAccount.name).also {
+                    foundAccount = it
+                }
+            }
+            result.second
+        }
+
+        if (foundAccount != null) {
+            saveAllAccounts()
+            val newAccount = Account(foundAccount.name, foundAccount.type)
+            synchronized(authTokenRecords) {
+                for (record in authTokenRecords) {
+                    if (record.userId == userId && record.account == accountToRename) {
+                        record.account = newAccount
                     }
                 }
-                sendAccountsChangedBroadcast(userId)
-                return newAccount
             }
+            sendAccountsChangedBroadcast(userId)
+            return newAccount
         }
+
         return accountToRename
     }
 
     override fun peekAuthToken(userId: Int, account: Account, authTokenType: String): String? {
         enforceCallingUser(userId)
-        synchronized(accountsByUserId) {
-            val vAccount = getAccount(userId, account)
-            if (vAccount != null) {
-                return vAccount.authTokens[authTokenType]
-            }
-            return null
-        }
+
+        return accountTable.value.getAccount(userId, account)?.authTokens?.get(authTokenType)
     }
 
 
@@ -842,11 +850,6 @@ class VAccountManagerService : IAccountManager.Stub() {
         }
     }
 
-
-    private fun getAccount(userId: Int, account: Account): VAccount? {
-        return this.getAccount(userId, account.name, account.type)
-    }
-
     private fun insertAccountIntoDatabase(
         userId: Int,
         account: Account?,
@@ -856,28 +859,34 @@ class VAccountManagerService : IAccountManager.Stub() {
         if (account == null) {
             return false
         }
-        synchronized(accountsByUserId) {
-            val vAccount = VAccount(userId, account)
-            vAccount.password = password
-            // convert the [Bundle] to [Map<String, String>]
-            if (extras != null) {
-                for (key in extras.keySet()) {
-                    val value = extras.get(key)
-                    if (value is String) {
-                        vAccount.userDatas[key] = value
-                    }
+
+        val userDatas = hashMapOf<String?, String?>()
+        // convert the [Bundle] to [Map<String, String>]
+        if (extras != null) {
+            for (key in extras.keySet()) {
+                val value = extras.get(key)
+                if (value is String) {
+                    userDatas[key] = value
                 }
             }
-            var accounts = accountsByUserId.get(userId)
-            if (accounts == null) {
-                accounts = mutableListOf()
-                accountsByUserId.put(userId, accounts)
-            }
-            accounts.add(vAccount)
-            saveAllAccounts()
-            sendAccountsChangedBroadcast(vAccount.userId)
-            return true
         }
+
+        val vAccount =
+            VAccount(
+                userId,
+                name = account.name,
+                type = account.type,
+                password = password,
+                userDatas = userDatas.toPersistentMap()
+            )
+
+        accountTable.update { state ->
+            state.addAccount(userId, vAccount)
+        }
+
+        saveAllAccounts()
+        sendAccountsChangedBroadcast(vAccount.userId)
+        return true
     }
 
     private fun sendAccountsChangedBroadcast(userId: Int) {
@@ -904,15 +913,11 @@ class VAccountManagerService : IAccountManager.Stub() {
         val dest = Parcel.obtain()
         try {
             dest.writeInt(1)
-            val accounts: MutableList<VAccount> = ArrayList()
-            for (i in 0..<this.accountsByUserId.size) {
-                val list = this.accountsByUserId.valueAt(i)
-                if (list != null) {
-                    accounts.addAll(list)
-                }
-            }
-            dest.writeInt(accounts.size)
-            for (account in accounts) {
+
+            val allAccounts = accountTable.value.getAll()
+
+            dest.writeInt(allAccounts.size)
+            for (account in allAccounts) {
                 account.writeToParcel(dest, 0)
             }
             dest.writeLong(lastAccountChangeTime)
@@ -931,17 +936,19 @@ class VAccountManagerService : IAccountManager.Stub() {
     private fun readAllAccounts() {
         val accountFile = VEnvironment.getAccountConfigFile()
         refreshAuthenticatorCache(null)
+        val accountsByUserId = mutableMapOf<Int, MutableList<VAccount>>()
+        var invalid = false
+
         if (accountFile.exists()) {
-            accountsByUserId.clear()
             val dest = Parcel.obtain()
             try {
-                val `is` = FileInputStream(accountFile)
+                val fileStream = FileInputStream(accountFile)
                 val bytes = ByteArray(accountFile.length().toInt())
-                val readLength = `is`.read(bytes)
-                `is`.close()
+                val readLength = fileStream.read(bytes)
+                fileStream.close()
                 if (readLength != bytes.size) {
                     throw IOException(
-                        String.format(
+                        format(
                             Locale.ENGLISH,
                             "Expect length %d, but got %d.",
                             bytes.size,
@@ -953,54 +960,50 @@ class VAccountManagerService : IAccountManager.Stub() {
                 dest.setDataPosition(0)
                 dest.readInt() // skip the magic
                 var size = dest.readInt() // the VAccount's size we need to read
-                var invalid = false
+
                 while (size-- > 0) {
                     val account = VAccount(dest)
-                    Timber.d( "Reading account : %s", account.type)
-                    val info = cache.authenticators[account.type]
+                    Timber.d("Reading account : %s", account.type)
+
+                    val info = synchronized(cache) {
+                        cache.authenticators[account.type]
+                    }
                     if (info != null) {
-                        var accounts = accountsByUserId.get(account.userId)
+                        var accounts = accountsByUserId[account.userId]
                         if (accounts == null) {
                             accounts = mutableListOf()
-                            accountsByUserId.put(account.userId, accounts)
+                            accountsByUserId[account.userId] = accounts
                         }
                         accounts.add(account)
                     } else {
                         invalid = true
                     }
                 }
+
                 lastAccountChangeTime = dest.readLong()
-                if (invalid) {
-                    saveAllAccounts()
-                }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
                 dest.recycle()
             }
         }
-    }
 
-
-    private fun getAccount(userId: Int, accountName: String?, accountType: String?): VAccount? {
-        val accounts = accountsByUserId.get(userId)
-        if (accounts != null) {
-            for (account in accounts) {
-                if (TextUtils.equals(account.name, accountName) && TextUtils.equals(
-                        account.type,
-                        accountType
-                    )
-                ) {
-                    return account
-                }
-            }
+        accountTable.update {
+            val persistentMap =
+                accountsByUserId.mapValues { it.value.toPersistentList() }.toPersistentMap()
+            VAccountTable(persistentMap)
         }
-        return null
+
+        if (invalid) {
+            saveAllAccounts()
+        }
     }
 
 
     fun refreshAuthenticatorCache(packageName: String?) {
-        cache.authenticators.clear()
+        synchronized(cache) {
+            cache.authenticators.clear()
+        }
         val intent = Intent(AccountManager.ACTION_AUTHENTICATOR_INTENT)
         if (packageName != null) {
             intent.setPackage(packageName)
@@ -1036,7 +1039,9 @@ class VAccountManagerService : IAccountManager.Stub() {
                             info.serviceInfo.packageName, attributeSet
                         )
                         if (desc != null) {
-                            map[desc.type] = AuthenticatorInfo(desc, info.serviceInfo)
+                            synchronized(cache) {
+                                map[desc.type] = AuthenticatorInfo(desc, info.serviceInfo)
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -1246,23 +1251,31 @@ class VAccountManagerService : IAccountManager.Stub() {
                 val needUpdate = mUpdateLastAuthenticatedTime
                         && (isSuccessfulConfirmCreds || isSuccessfulUpdateCredsOrAddAccount)
                 if (needUpdate || mAuthDetailsRequired) {
-                    synchronized(accountsByUserId) {
-                        val account =
-                            getAccount(mUserId, mAccountName, mAuthenticatorInfo.desc.type)
-                        if (needUpdate && account != null) {
-                            account.lastAuthenticatedTime = System.currentTimeMillis()
+                    var lastAuthTime: Long? = null
+
+                    if (needUpdate) {
+                        val changed = accountTable.updateWithResult { state ->
+                            state.modifyAccount(
+                                mUserId,
+                                mAccountName,
+                                mAuthenticatorInfo.desc.type
+                            ) { vAccount ->
+                                vAccount.copy(
+                                    lastAuthenticatedTime = System.currentTimeMillis()
+                                        .also { lastAuthTime = it })
+                            }
+                        }
+
+                        if (changed) {
                             saveAllAccounts()
                         }
-                        if (mAuthDetailsRequired) {
-                            var lastAuthenticatedTime: Long = -1
-                            if (account != null) {
-                                lastAuthenticatedTime = account.lastAuthenticatedTime
-                            }
-                            result.putLong(
-                                AccountManagerCompat.KEY_LAST_AUTHENTICATED_TIME,
-                                lastAuthenticatedTime
-                            )
-                        }
+                    }
+
+                    if (mAuthDetailsRequired) {
+                        result.putLong(
+                            AccountManagerCompat.KEY_LAST_AUTHENTICATED_TIME,
+                            lastAuthTime ?: -1
+                        )
                     }
                 }
             }
@@ -1280,11 +1293,12 @@ class VAccountManagerService : IAccountManager.Stub() {
             if (result != null) {
                 intent = result.getParcelable<Intent?>(AccountManager.KEY_INTENT)
             }
-            val response = if (mExpectActivityLaunch && result != null && result.containsKey(AccountManager.KEY_INTENT)) {
-                mResponse
-            } else {
-                this.responseAndClose
-            }
+            val response =
+                if (mExpectActivityLaunch && result != null && result.containsKey(AccountManager.KEY_INTENT)) {
+                    mResponse
+                } else {
+                    this.responseAndClose
+                }
             if (response != null) {
                 try {
                     if (result == null) {
@@ -1445,10 +1459,10 @@ class VAccountManagerService : IAccountManager.Stub() {
                     for (i in accounts.indices) {
                         accounts[i] = mAccountsWithFeatures!![i]
                     }
-                        Timber.v(
-                            (javaClass.getSimpleName() + " calling onResult() on response "
-                                    + response)
-                        )
+                    Timber.v(
+                        (javaClass.getSimpleName() + " calling onResult() on response "
+                                + response)
+                    )
                     val result = Bundle()
                     result.putParcelableArray(AccountManager.KEY_ACCOUNTS, accounts)
                     response.onResult(result)
