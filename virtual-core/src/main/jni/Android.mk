@@ -23,7 +23,10 @@ LOCAL_SRC_FILES := Jni/VAJni.cpp \
                    Substrate/SubstrateDebug.cpp \
                    Substrate/SubstrateHook.cpp \
                    Substrate/SubstratePosixMemory.cpp \
-                   A64Inlinehook/And64InlineHook.cpp
+                   A64Inlinehook/And64InlineHook.cpp \
+                   Foundation/broker_client.cpp \
+                   Foundation/broker_server.cpp \
+                   Foundation/broker_proto.h
 
 LOCAL_LDLIBS := -llog -latomic
 LOCAL_STATIC_LIBRARIES := fb

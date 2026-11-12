@@ -60,6 +60,7 @@ import com.lody.virtual.remote.InstalledAppInfo;
 import com.lody.virtual.remote.PendingResultData;
 import com.lody.virtual.remote.VDeviceInfo;
 import com.lody.virtual.server.interfaces.IUiCallback;
+import com.lody.virtual.server.security.SyscallBroker;
 import com.virtualxposed.hook.PackageID;
 import com.virtualxposed.hook.VHookClient;
 import com.virtualxposed.log.client.LogMessage;
@@ -354,6 +355,9 @@ public final class VClientImpl extends IVClient.Stub {
         if (Build.VERSION.SDK_INT >= 26 && applicationInfo.splitNames == null) {
             applicationInfo.splitNames = new String[1];
         }
+
+        // TODO kill child app if seccomp filters were not applied!
+        SyscallBroker.initClient();
 
         boolean enableXposed = VirtualCore.get().isXposedEnabled();
         if (enableXposed) {

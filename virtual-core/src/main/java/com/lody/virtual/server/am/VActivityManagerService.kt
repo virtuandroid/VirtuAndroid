@@ -31,6 +31,7 @@ import com.lody.virtual.IntentHelper.BROADCAST_COMPONENT
 import com.lody.virtual.IntentHelper.BUNDLE_BINDER
 import com.lody.virtual.IntentHelper.BUNDLE_CLIENT_BINDER
 import com.lody.virtual.IntentHelper.BUNDLE_PID
+import com.lody.virtual.IntentHelper.BUNDLE_SYSCALL_BROKER_FD
 import com.lody.virtual.IntentHelper.BUNDLE_VUID
 import com.lody.virtual.IntentHelper.INTENT_EMBEDDED
 import com.lody.virtual.IntentHelper.INTENT_USER_ID
@@ -71,6 +72,7 @@ import com.lody.virtual.server.security.SecurityUtils.assertPackageMatchesCallin
 import com.lody.virtual.server.security.SecurityUtils.enforceCallingUid
 import com.lody.virtual.server.security.SecurityUtils.enforceCallingUser
 import com.lody.virtual.server.security.SecurityUtils.enforceNotIsolatedCaller
+import com.lody.virtual.server.security.SyscallBroker
 import com.virtualxposed.log.client.LogMessage
 import com.virtualxposed.log.client.LogMessage.AppDeath
 import com.virtualxposed.log.client.LogMessage.BroadCastReceived
@@ -924,6 +926,8 @@ class VActivityManagerService : IActivityManager.Stub() {
         val app = ProcessRecord(info, processName, vuid, vpid)
         val extras = Bundle()
         BundleCompat.putBinder(extras, BUNDLE_BINDER, app)
+        val broker = SyscallBroker.generateBroker(vuid)
+        extras.putParcelable(BUNDLE_SYSCALL_BROKER_FD, broker)
         extras.putInt(BUNDLE_VUID, vuid)
         val res = ProviderCall.call(
             VASettings.getStubAuthority(vpid),
@@ -935,6 +939,7 @@ class VActivityManagerService : IActivityManager.Stub() {
             return null
         }
         val pid = res.getInt(BUNDLE_PID)
+        SyscallBroker.initServer(pid, vuid)
         val clientBinder = BundleCompat.getBinder(res, BUNDLE_CLIENT_BINDER)
         return if (attachClient(pid, clientBinder)) {
             app

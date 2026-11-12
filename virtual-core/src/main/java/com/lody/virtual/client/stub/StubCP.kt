@@ -5,15 +5,18 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.os.Process
 import com.lody.virtual.IntentHelper.BUNDLE_BINDER
 import com.lody.virtual.IntentHelper.BUNDLE_CLIENT_BINDER
 import com.lody.virtual.IntentHelper.BUNDLE_PID
+import com.lody.virtual.IntentHelper.BUNDLE_SYSCALL_BROKER_FD
 import com.lody.virtual.IntentHelper.BUNDLE_VUID
 import com.lody.virtual.client.VClientImpl
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.helper.compat.BundleCompat
 import com.lody.virtual.server.security.SecurityUtils
+import com.lody.virtual.server.security.SyscallBroker
 
 /**
  * @author Lody
@@ -48,6 +51,10 @@ open class StubCP : ContentProvider() {
         }
         val token = BundleCompat.getBinder(extras, BUNDLE_BINDER)
         val vuid = extras?.getInt(BUNDLE_VUID) ?: return null
+
+        val childBrokerDescriptor = extras.getParcelable<ParcelFileDescriptor>(BUNDLE_SYSCALL_BROKER_FD)
+        SyscallBroker.childBrokerDescriptor = childBrokerDescriptor
+
         val client = VClientImpl.get()
         client.initProcess(token, vuid)
         val res = Bundle()

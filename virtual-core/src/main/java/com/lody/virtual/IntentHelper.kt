@@ -1,4 +1,5 @@
 package com.lody.virtual
+
 import com.lody.virtual.os.VBinder
 import com.lody.virtual.server.security.SecurityUtils
 
@@ -36,4 +37,5 @@ object IntentHelper {
     const val BUNDLE_PID = "_VA_|_pid_"
     const val BUNDLE_VUID = "_VA_|_vuid_"
     const val BUNDLE_CLIENT_BINDER = "_VA_|_client_"
+    const val BUNDLE_SYSCALL_BROKER_FD = "_VA_|_syscall_broker_"
 }
