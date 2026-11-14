@@ -37,14 +37,15 @@ object SyscallBroker {
     }
 
     @JvmStatic
-    fun initServer(guestPid: Int, guestVuid: Int) {
+    fun initServer(guestPid: Int, guestVuid: Int, sandbox: StorageSandbox) {
         val local = processBrokerTable.value[guestVuid] ?: return
 
+        // TODO is thread correct here?
         thread {
-            brokerServe(local.fd, guestPid)
+            brokerServe(local.fd, guestPid, sandbox)
         }
     }
 
-    private external fun brokerServe(fd: Int, pid: Int)
+    private external fun brokerServe(fd: Int, pid: Int, sandbox: StorageSandbox)
     private external fun brokerClientInstall(fd: Int)
 }

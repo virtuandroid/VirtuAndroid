@@ -25,6 +25,8 @@ android {
                 abiFilters("arm64-v8a", "x86_64")
             }
         }
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -60,6 +62,14 @@ android {
         buildConfig = true
     }
 
+    packagingOptions {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            merges += "META-INF/LICENSE.md"
+            merges += "META-INF/LICENSE-notice.md"
+        }
+    }
+
     kotlin {
         compilerOptions {
             freeCompilerArgs.add("-opt-in=kotlinx.serialization.InternalSerializationApi")
@@ -80,6 +90,8 @@ dependencies {
     implementation("dev.rikka.rikkax.parcelablelist:parcelablelist:2.0.1")
     implementation("com.github.ChickenHook:RestrictionBypass:c59bd6a")
     implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.5.2")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.test:runner:1.7.0")
 }
 
 repositories {

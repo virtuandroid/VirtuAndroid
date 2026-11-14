@@ -72,6 +72,7 @@ import com.lody.virtual.server.security.SecurityUtils.assertPackageMatchesCallin
 import com.lody.virtual.server.security.SecurityUtils.enforceCallingUid
 import com.lody.virtual.server.security.SecurityUtils.enforceCallingUser
 import com.lody.virtual.server.security.SecurityUtils.enforceNotIsolatedCaller
+import com.lody.virtual.server.security.StorageSandbox
 import com.lody.virtual.server.security.SyscallBroker
 import com.virtualxposed.log.client.LogMessage
 import com.virtualxposed.log.client.LogMessage.AppDeath
@@ -939,7 +940,10 @@ class VActivityManagerService : IActivityManager.Stub() {
             return null
         }
         val pid = res.getInt(BUNDLE_PID)
-        SyscallBroker.initServer(pid, vuid)
+        val sandbox = StorageSandbox().apply {
+            initSandboxForPid(info, pid)
+        }
+        SyscallBroker.initServer(pid, vuid, sandbox)
         val clientBinder = BundleCompat.getBinder(res, BUNDLE_CLIENT_BINDER)
         return if (attachClient(pid, clientBinder)) {
             app
