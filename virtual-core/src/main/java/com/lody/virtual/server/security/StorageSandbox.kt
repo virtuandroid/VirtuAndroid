@@ -24,8 +24,6 @@ import java.io.File
  */
 class StorageSandbox {
     private val ruleList = MutableStateFlow(DirectoryRule())
-
-    // TODO Reach from broker server
     private val redirectMap = MutableStateFlow(persistentHashMapOf<String, String>())
 
     data class DirectoryRule(
@@ -68,8 +66,6 @@ class StorageSandbox {
         whitelistPaths("/proc/$pid/")
         redirectDirectory("/proc/self", "/proc/$pid")
 
-//        whitelistPaths("/")
-
         // Important system directories required for runtime
         whitelistPaths(
             "/dev/",
@@ -78,7 +74,8 @@ class StorageSandbox {
             "/system/",
             "/apex/", // System libraries such as libart.so
             "/sys/",
-            "/data/misc/"
+            "/data/misc/",
+            "/system_ext/"
         )
 
         whitelistPaths("/storage/") // External storage, should be restricted in the future
@@ -141,9 +138,9 @@ class StorageSandbox {
      */
     fun isPathAllowed(absolutePath: String): Boolean {
         return isPathAllowed(absolutePath, ruleList.value)
-            .also {
-                Timber.i("Is path allowed: $absolutePath $it")
-            }
+//            .also {
+//                Timber.d("Is path allowed: $absolutePath $it")
+//            }
     }
 
     companion object {

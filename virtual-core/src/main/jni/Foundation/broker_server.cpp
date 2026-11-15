@@ -38,7 +38,7 @@
 /* ========================================================================== */
 
 // Handle to the Kotlin policy object. Set once in brokerServe() and only used from
-// that same thread (a JNIEnv is thread-bound), so no global refs are required.
+// that same thread (a JNIEnv is thread-bound)
 struct JavaPolicy {
     JNIEnv *env = nullptr;
     jobject sandbox = nullptr;

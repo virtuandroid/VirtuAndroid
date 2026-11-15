@@ -151,25 +151,25 @@ __BEGIN_DECLS
 // 2. nm -D --defined-only libc.so
 
 // int __openat(int fd, const char *pathname, int flags, int mode);
-//HOOK_DEF(int, openat, int fd, const char *pathname, int flags, int mode) {
-//    int res;
-//    const char *redirect_path = relocate_path(pathname, &res);
-//    int ret = syscall(__NR_openat, fd, redirect_path, flags, mode);
-//    FREE(redirect_path, pathname);
-//    return ret;
-//}
-//
-//// long syscall(SYS_openat2, int dirfd, const char *path, struct open_how *how, size_t size);
-//HOOK_DEF(int, __openat_2, int dirfd, const char *pathname, int flags, mode_t mode) {
-//    int res;
-//    const char *redirect_path = relocate_path(pathname, &res);
-//
-//    // __openat_2 syscall causes webview crashes!
-//    int ret = syscall(__NR_openat, dirfd, redirect_path, flags, mode);
-//
-//    FREE(redirect_path, pathname);
-//    return ret;
-//}
+HOOK_DEF(int, openat, int fd, const char *pathname, int flags, int mode) {
+    int res;
+    const char *redirect_path = relocate_path(pathname, &res);
+    int ret = syscall(__NR_openat, fd, redirect_path, flags, mode);
+    FREE(redirect_path, pathname);
+    return ret;
+}
+
+// long syscall(SYS_openat2, int dirfd, const char *path, struct open_how *how, size_t size);
+HOOK_DEF(int, __openat_2, int dirfd, const char *pathname, int flags, mode_t mode) {
+    int res;
+    const char *redirect_path = relocate_path(pathname, &res);
+
+    // __openat_2 syscall causes webview crashes!
+    int ret = syscall(__NR_openat, dirfd, redirect_path, flags, mode);
+
+    FREE(redirect_path, pathname);
+    return ret;
+}
 
 // int fstatat64(int dirfd, const char *pathname, struct stat *buf, int flags);
 HOOK_DEF(int, fstatat64, int dirfd, const char *pathname, struct stat *buf, int flags) {
@@ -333,22 +333,22 @@ HOOK_DEF(int, statfs64, __const char *__file, struct statfs *__buf) {
 // Extra open hooks
 #ifdef __x86_64__
 // int __open(const char *pathname, int flags, int mode);
-//HOOK_DEF(int, open, const char *pathname, int flags, int mode) {
-//    int res;
-//    const char *redirect_path = relocate_path(pathname, &res);
-//    int ret = syscall(__NR_open, redirect_path, flags, mode);
-//    FREE(redirect_path, pathname);
-//    return ret;
-//}
+HOOK_DEF(int, open, const char *pathname, int flags, int mode) {
+    int res;
+    const char *redirect_path = relocate_path(pathname, &res);
+    int ret = syscall(__NR_open, redirect_path, flags, mode);
+    FREE(redirect_path, pathname);
+    return ret;
+}
 
 // int __open2(const char *pathname, int flags, int mode);
-//HOOK_DEF(int, __open_2, const char *pathname, int flags, int mode) {
-//    int res;
-//    const char *redirect_path = relocate_path(pathname, &res);
-//    int ret = syscall(__NR_open, redirect_path, flags, mode);
-//    FREE(redirect_path, pathname);
-//    return ret;
-//}
+HOOK_DEF(int, __open_2, const char *pathname, int flags, int mode) {
+    int res;
+    const char *redirect_path = relocate_path(pathname, &res);
+    int ret = syscall(__NR_open, redirect_path, flags, mode);
+    FREE(redirect_path, pathname);
+    return ret;
+}
 
 #endif
 
@@ -543,12 +543,12 @@ HOOK_DEF(int, connect, int sockfd, const struct sockaddr *addr, socklen_t addrle
 }
 
 // int kill(pid_t pid, int sig);
-//HOOK_DEF(int, kill, pid_t pid, int sig) {
-//    ALOGD(">>>>> kill >>> pid: %d, sig: %d.", pid, sig);
-//    log_kill(pid);
-//    int ret = syscall(__NR_kill, pid, sig);
-//    return ret;
-//}
+HOOK_DEF(int, kill, pid_t pid, int sig) {
+    ALOGD(">>>>> kill >>> pid: %d, sig: %d.", pid, sig);
+    log_kill(pid);
+    int ret = syscall(__NR_kill, pid, sig);
+    return ret;
+}
 
 HOOK_DEF(pid_t, vfork) {
     return fork();
@@ -613,21 +613,21 @@ void IOUniformer::startUniformer(const char *so_path, int api_level, int preview
 #endif
 //        HOOK_SYMBOL(handle, openat);
 //        HOOK_SYMBOL(handle, __openat_2);
-        HOOK_SYMBOL(handle, fchownat);
-        HOOK_SYMBOL(handle, renameat);
-        HOOK_SYMBOL(handle, fstatat64);
-        HOOK_SYMBOL(handle, statfs);
-        HOOK_SYMBOL(handle, mkdirat);
-        HOOK_SYMBOL(handle, mknodat);
-        HOOK_SYMBOL(handle, truncate);
-        HOOK_SYMBOL(handle, linkat);
-        HOOK_SYMBOL(handle, readlinkat);
-        HOOK_SYMBOL(handle, unlinkat);
-        HOOK_SYMBOL(handle, symlinkat);
-        HOOK_SYMBOL(handle, utimensat);
-        HOOK_SYMBOL(handle, chdir);
-        HOOK_SYMBOL(handle, execve);
-        HOOK_SYMBOL(handle, statfs64);
+//        HOOK_SYMBOL(handle, fchownat);
+//        HOOK_SYMBOL(handle, renameat);
+//        HOOK_SYMBOL(handle, fstatat64);
+//        HOOK_SYMBOL(handle, statfs);
+//        HOOK_SYMBOL(handle, mkdirat);
+//        HOOK_SYMBOL(handle, mknodat);
+//        HOOK_SYMBOL(handle, truncate);
+//        HOOK_SYMBOL(handle, linkat);
+//        HOOK_SYMBOL(handle, readlinkat);
+//        HOOK_SYMBOL(handle, unlinkat);
+//        HOOK_SYMBOL(handle, symlinkat);
+//        HOOK_SYMBOL(handle, utimensat);
+//        HOOK_SYMBOL(handle, chdir);
+//        HOOK_SYMBOL(handle, execve);
+//        HOOK_SYMBOL(handle, statfs64);
 //        HOOK_SYMBOL(handle, kill);
         HOOK_SYMBOL(handle, connect);
         dlclose(handle);

@@ -200,6 +200,15 @@ static long proxy_syscall(ucontext_t *uc, int nr) {
             r.cloexec = I(1) & O_CLOEXEC;
             break;
 #endif
+        // TODO Better openat args
+        case __NR_openat2:                                       // (path, flags, mode)
+            r.op = OP_OPENAT;
+            r.fd[0] = -1;                                     // same encoding DFD() gives AT_FDCWD
+            r.path[0] = P(0);
+            r.a[0] = I(1);                                    // flags
+            r.a[1] = I(2);                                    // mode
+            r.cloexec = I(1) & O_CLOEXEC;
+            break;
         case __NR_openat:
             r.op = OP_OPENAT;
             r.fd[0] = DFD(0);
@@ -390,30 +399,49 @@ void apply_seccomp_filter() {
 
     // 2. Define the BPF Filter Instructions
     struct sock_filter filter[] = {
-            // [0] Load architecture number from system call data frame into accumulator
+            // Load architecture number from system call data frame into accumulator
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
 
-            // [1] Verify architecture matches target (prevents arch-switching exploits)
+            // Verify architecture matches target (prevents arch-switching exploits)
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_CURRENT, 1, 0),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
 
-            // [2] Load system call number into accumulator
+            // Load system call number into accumulator
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
 
-#ifdef __NR_open
-            // [3] Check if Syscall is 'open'
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_open, 3, 0),
-#endif
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_kill, 2, 0),
+            // Disable ptrace
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ptrace, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA)),
 
-            // [4] Check if Syscall is 'openat'
+#ifdef __NR_open
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_open, 17, 0),
+#endif
+//            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_connect, 16, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_openat2, 16, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_chdir, 15, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_utimensat, 14, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_symlinkat, 13, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_unlinkat, 12, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_readlinkat, 11, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_linkat, 10, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_truncate, 9, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mknodat, 8, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mkdirat, 7, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_statfs, 6, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_newfstatat, 5, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_renameat, 4, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_kill, 3, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_fchownat, 2, 0),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_openat, 1, 0),
 
-            // [5] If not open/openat, ALLOW the syscall
+            // ALLOW all other syscalls
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
 
-            // [6] If open/openat matched, RETURN TRAP
-            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP)
+            // Matched syscall RETURN TRAP
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP),
+
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO),
+
     };
 
     struct sock_fprog prog = {
