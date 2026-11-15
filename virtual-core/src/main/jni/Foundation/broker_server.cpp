@@ -43,11 +43,12 @@ struct JavaPolicy {
     JNIEnv *env = nullptr;
     jobject sandbox = nullptr;
     jmethodID check_method = nullptr;   // boolean isPathAllowed(String)
+    jmethodID redirect_method = nullptr;   // String getRedirectPath(String)
 };
 
-static JavaPolicy g_policy;
-static char g_cwd[PATH_MAX] = "/";      // the client's *virtual* cwd (never a real chdir)
-static pid_t g_client_pid;
+static thread_local JavaPolicy g_policy;
+static thread_local char g_cwd[PATH_MAX] = "/";
+static thread_local pid_t g_client_pid;
 
 // Per-request context handed to every handler.
 struct ctx {
@@ -84,6 +85,41 @@ static bool isPathAllowed(const char *path) {
     }
     return allowed == JNI_TRUE;
 }
+
+static bool getRedirectPath(const char *path, char out[PATH_MAX]) {
+    JNIEnv *env = g_policy.env;
+    if (!env) return false;
+
+    jstring jpath = env->NewStringUTF(path);
+    if (jpath == nullptr) {             // OOM or exception pending
+        env->ExceptionClear();
+        return false;
+    }
+
+    auto jResult = (jstring) env->CallObjectMethod(g_policy.sandbox,
+                                                   g_policy.redirect_method, jpath);
+    env->DeleteLocalRef(jpath);
+
+    if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();
+        env->ExceptionClear();
+        return false;
+    }
+    if (!jResult) return false;
+
+    bool redirected = false;
+    const char *chars = env->GetStringUTFChars(jResult, nullptr);
+    if (chars) {
+        // Only accept if it fits; otherwise keep the original path
+        if (snprintf(out, PATH_MAX, "%s", chars) < PATH_MAX) {
+            redirected = true;
+        }
+        env->ReleaseStringUTFChars(jResult, chars);
+    }
+    env->DeleteLocalRef(jResult);
+    return redirected;
+}
+
 
 /* ========================================================================== */
 /* Small helpers                                                              */
@@ -126,22 +162,33 @@ static int fd_path(int fd, char out[PATH_MAX]) {
 static int abs_path(int dirfd, const char *p, char out[PATH_MAX]) {
     if (!p[0]) return -ENOENT;
 
+    char resolved[PATH_MAX];
+
     if (p[0] == '/') {
-        int n = snprintf(out, PATH_MAX, "%s", p);
-        return n >= PATH_MAX ? -ENAMETOOLONG : 0;
+        int n = snprintf(resolved, PATH_MAX, "%s", p);
+        if (n >= PATH_MAX) return -ENAMETOOLONG;
+    } else {
+        char base[PATH_MAX];
+        if (dirfd < 0) {
+            snprintf(base, sizeof base, "%s", g_cwd);
+        } else {
+            struct stat st{};
+            if (fstat(dirfd, &st) < 0) return -errno;
+            if (!S_ISDIR(st.st_mode)) return -ENOTDIR;
+            TRY(fd_path(dirfd, base));
+        }
+        int n = snprintf(resolved, PATH_MAX, "%s/%s", base, p);
+        if (n >= PATH_MAX) return -ENAMETOOLONG;
     }
 
-    char base[PATH_MAX];
-    if (dirfd < 0) {
-        snprintf(base, sizeof base, "%s", g_cwd);
+    // Apply sandbox redirection to the fully resolved absolute path
+    char redirected[PATH_MAX];
+    if (getRedirectPath(resolved, redirected)) {
+        snprintf(out, PATH_MAX, "%s", redirected);
     } else {
-        struct stat st{};
-        if (fstat(dirfd, &st) < 0) return -errno;
-        if (!S_ISDIR(st.st_mode)) return -ENOTDIR;
-        TRY(fd_path(dirfd, base));
+        snprintf(out, PATH_MAX, "%s", resolved);
     }
-    int n = snprintf(out, PATH_MAX, "%s/%s", base, p);
-    return n >= PATH_MAX ? -ENAMETOOLONG : 0;
+    return 0;
 }
 
 // Opens an O_PATH handle to the fully resolved target and checks the *real* path
@@ -754,7 +801,6 @@ static void broker_serve(int sock, pid_t client_pid) {
 /* ========================================================================== */
 /* JNI entry point                                                            */
 /* ========================================================================== */
-
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_lody_virtual_server_security_SyscallBroker_brokerServe(JNIEnv *env, jobject thiz,
@@ -762,8 +808,13 @@ Java_com_lody_virtual_server_security_SyscallBroker_brokerServe(JNIEnv *env, job
                                                                 jobject sandbox) {
     jclass cls = env->GetObjectClass(sandbox);
     jmethodID check_method = env->GetMethodID(cls, "isPathAllowed", "(Ljava/lang/String;)Z");
-    env->DeleteLocalRef(cls);
     if (check_method == nullptr) {
+        env->ExceptionClear();
+        return;
+    }
+    jmethodID redirect_method = env->GetMethodID(cls, "getRedirectPath", "(Ljava/lang/String;)Ljava/lang/String;");
+    env->DeleteLocalRef(cls);
+    if (redirect_method == nullptr) {
         env->ExceptionClear();
         return;
     }
@@ -771,7 +822,9 @@ Java_com_lody_virtual_server_security_SyscallBroker_brokerServe(JNIEnv *env, job
     g_policy.env = env ;
     g_policy.sandbox = sandbox;
     g_policy.check_method = check_method;
+    g_policy.redirect_method = redirect_method;
 
     ALOGD("Starting the syscall broker for %d on fd %d", pid, fd);
     broker_serve(fd, pid);
+    g_policy = {};
 }

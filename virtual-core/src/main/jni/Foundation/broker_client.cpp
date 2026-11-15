@@ -143,7 +143,7 @@ static long broker_rpc(struct rpc *r) {
 
     // Output lands directly in the caller's buffer; the kernel handles bad pointers.
     struct broker_resp_hdr resp{};
-    struct iovec riov[2] = {{&resp, sizeof resp},
+    struct iovec riov[2] = {{&resp,  sizeof resp},
                             {r->out, r->out_cap}};
     union {
         char b[CMSG_SPACE(sizeof(int))];
@@ -350,8 +350,8 @@ static long proxy_syscall(ucontext_t *uc, int nr) {
 
 static void sigsys_handler(int sig, siginfo_t *info, void *ucontext) {
     int syscall_nr = info->si_syscall;   // blocked syscall number
-    int arch       = info->si_arch;      // AUDIT_ARCH_* value
-    void* addr     = info->si_call_addr; // address of the syscall instruction
+    int arch = info->si_arch;      // AUDIT_ARCH_* value
+    void *addr = info->si_call_addr; // address of the syscall instruction
 
     ALOGD("syscall=%d arch=0x%x addr=%p", syscall_nr, arch, addr);
 
@@ -363,7 +363,7 @@ static void sigsys_handler(int sig, siginfo_t *info, void *ucontext) {
         return;
     }
     long ret = (info->si_arch != AUDIT_ARCH_CURRENT) ? -ENOSYS
-                                                 : proxy_syscall(uc, info->si_syscall);
+                                                     : proxy_syscall(uc, info->si_syscall);
     ALOGD("Returned: %d from syscall: %d", ret, info->si_syscall);
 
     UC_RET(uc) = (typeof(UC_RET(uc))) ret;
@@ -390,33 +390,35 @@ void apply_seccomp_filter() {
 
     // 2. Define the BPF Filter Instructions
     struct sock_filter filter[] = {
-        // [0] Load architecture number from system call data frame into accumulator
-        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
+            // [0] Load architecture number from system call data frame into accumulator
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
 
-        // [1] Verify architecture matches target (prevents arch-switching exploits)
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_CURRENT, 1, 0),
-        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
+            // [1] Verify architecture matches target (prevents arch-switching exploits)
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_CURRENT, 1, 0),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
 
-        // [2] Load system call number into accumulator
-        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+            // [2] Load system call number into accumulator
+            BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
 
 #ifdef __NR_open
-        // [3] Check if Syscall is 'open'
-         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_open, 1, 0),
+            // [3] Check if Syscall is 'open'
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_open, 3, 0),
 #endif
-        // [4] Check if Syscall is 'openat'
-        // BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_openat, 1, 0),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_kill, 2, 0),
 
-        // [5] If not open/openat, ALLOW the syscall
-        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+            // [4] Check if Syscall is 'openat'
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_openat, 1, 0),
 
-        // [6] If open/openat matched, RETURN TRAP
-        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP)
+            // [5] If not open/openat, ALLOW the syscall
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+
+            // [6] If open/openat matched, RETURN TRAP
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP)
     };
 
     struct sock_fprog prog = {
-        .len = static_cast<unsigned short>(sizeof(filter) / sizeof(filter[0])),
-        .filter = filter,
+            .len = static_cast<unsigned short>(sizeof(filter) / sizeof(filter[0])),
+            .filter = filter,
     };
 
     // 3. Apply the filter using prctl

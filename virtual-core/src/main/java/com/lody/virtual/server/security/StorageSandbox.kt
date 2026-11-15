@@ -13,6 +13,15 @@ import kotlinx.coroutines.flow.update
 import timber.log.Timber
 import java.io.File
 
+/**
+ * A path is only allowed if the deepest rule is [ALLOW].
+ *
+ * 1. All paths are blocked by default.
+ * 2. Specific directories can be whitelisted
+ * 3. Specific directories can be blocklisted, to block
+ *    specific subdirectories in an otherwise whitelisted directory
+ *
+ */
 class StorageSandbox {
     private val ruleList = MutableStateFlow(DirectoryRule())
 
@@ -53,29 +62,35 @@ class StorageSandbox {
     @SuppressLint("SdCardPath")
     fun initSandboxForPid(info: ApplicationInfo, pid: Int) {
         val userId = VUserHandle.getUserId(info.uid)
-        val hostPkg = VirtualCore.get().hostPkg;
+        val hostPkg = VirtualCore.get().hostPkg
 
         // Only allow the app to inspect its own proc
         whitelistPaths("/proc/$pid/")
         redirectDirectory("/proc/self", "/proc/$pid")
-        whitelistPaths("/proc/") // TODO remove
+
+//        whitelistPaths("/")
 
         // Important system directories required for runtime
-        whitelistPaths("/dev/")
-        whitelistPaths("/system/")
-        whitelistPaths("/apex/") // System libraries such as libart.so
-        whitelistPaths("/sys/")
-        whitelistPaths("/data/misc/")
+        whitelistPaths(
+            "/dev/",
+            "/mnt/",
+            "/vendor/", // /vendor/lib64/egl/libEGL_emulation.so
+            "/system/",
+            "/apex/", // System libraries such as libart.so
+            "/sys/",
+            "/data/misc/"
+        )
+
+        whitelistPaths("/storage/") // External storage, should be restricted in the future
+        whitelistPaths("/data/data/$hostPkg/virtual/data/app/system/permissions.xml") // TODO Move to server writer
 
         // Redirect user data access to VirtualXposed internal file system
         whitelistPaths(info.dataDir + "/")
         redirectDirectory("/data/data/${info.packageName}", info.dataDir)
         redirectDirectory("/data/user/0/${info.packageName}", info.dataDir)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            redirectDirectory("/data/user_de/0/${info.packageName}", info.dataDir);
-        }
-
+        // /data/data/$hostPkg/virtual/data/user/0/
+        // /data/data/io.va.exposed64/virtual/data/user/0/com.virtualxposed.guestattacker false
         // Redirect native library access
         val libPath = VEnvironment.getAppLibDirectory(info.packageName).absolutePath
 
@@ -91,13 +106,8 @@ class StorageSandbox {
         whitelistPaths("/data/data/$hostPkg/virtual/data/app/${info.packageName}/")
         whitelistPaths("/data/data/$hostPkg/virtual/data/user/$userId/${info.packageName}/")
 
-        // TODO REWORK THIS TO PREVENT APPS FROM READING THIS FILE
-        // Maybe make a runtime copy and redirect?
-        whitelistPaths(
-            "/data/data/$hostPkg/virtual/data/user/0/de.robv.android.xposed.installer/exposed_conf/modules.list",
-        )
+        // TODO Maybe make a runtime copy and redirect?
         whitelistPaths("/data/data/$hostPkg/files/modules.json")
-        // TODO read-only access to module APK files
 
         // Read the base apk of VirtualXposed
         whitelistPaths("/data/app/")
@@ -108,11 +118,32 @@ class StorageSandbox {
 //        NativeEngine.redirectDirectory("/sys/class/net/wifi/address", wifiMacAddressFile);
     }
 
-    fun isPathAllowed(path: String): Boolean {
-        return isPathAllowed(path, ruleList.value, redirectMap.value)
-//            .also {
-//                Timber.i("Is path allowed: $path $it")
-//            }
+    fun getRedirectPath(path: String): String {
+        val absolutePath = normalized(path)
+        val redirectMap = redirectMap.value
+
+        val redirectPath =
+            // Get the largest match
+            redirectMap.keys.filter {
+                absolutePath.startsWith(it)
+            }.maxByOrNull { it.length }?.let { redirectKey ->
+                // If there is a match then get the replacement value
+                val replacement = redirectMap.getValue(redirectKey)
+                absolutePath.replace(redirectKey, replacement)
+            } ?: absolutePath
+
+        Timber.i("Redirected: $path -> $redirectPath")
+        return redirectPath
+    }
+
+    /** Does not normalize path or account for redirect paths.
+     * @see [getRedirectPath]
+     */
+    fun isPathAllowed(absolutePath: String): Boolean {
+        return isPathAllowed(absolutePath, ruleList.value)
+            .also {
+                Timber.i("Is path allowed: $absolutePath $it")
+            }
     }
 
     companion object {
@@ -121,33 +152,12 @@ class StorageSandbox {
         const val BLOCK = 1 shl 1
         const val NOTIFY = 1 shl 2
 
-        /**
-         * A path is only allowed if the deepest rule is [ALLOW].
-         *
-         * 1. All paths are blocked by default.
-         * 2. Specific directories can be whitelisted
-         * 3. Specific directories can be blocklisted, to block
-         *    specific subdirectories in an otherwise whitelisted directory
-         *
-         */
         fun isPathAllowed(
             path: String,
             directoryRule: DirectoryRule,
-            redirectMap: Map<String, String> = emptyMap()
         ): Boolean {
-            val absolutePath = normalized(path)
-            val redirectPath =
-                // Get the largest match
-                redirectMap.keys.filter {
-                    absolutePath.startsWith(it)
-                }.maxByOrNull { it.length }?.let { redirectKey ->
-                    // If there is a match then get the replacement value
-                    val replacement = redirectMap.getValue(redirectKey)
-                    absolutePath.replace(redirectKey, replacement)
-                } ?: absolutePath
-
             // Change isAllowed to change the default deny/allow
-            return isPathAllowed(redirectPath, directoryRule, false)
+            return isPathAllowed(path, directoryRule, false)
         }
 
         internal fun blocklist(path: String, directoryRule: DirectoryRule): DirectoryRule {
