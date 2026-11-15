@@ -62,27 +62,30 @@ class StorageSandbox {
         val userId = VUserHandle.getUserId(info.uid)
         val hostPkg = VirtualCore.get().hostPkg
 
+        // Use this if something fails to figure out if it's the storage sandbox or something else.
+        // whitelistPaths("/")
+
         // Only allow the app to inspect its own proc
-        whitelistPaths("/proc/$pid/")
+        whitelistPaths("/proc/$pid")
         redirectDirectory("/proc/self", "/proc/$pid")
 
         // Important system directories required for runtime
         whitelistPaths(
-            "/dev/",
-            "/mnt/",
-            "/vendor/", // /vendor/lib64/egl/libEGL_emulation.so
-            "/system/",
-            "/apex/", // System libraries such as libart.so
-            "/sys/",
-            "/data/misc/",
-            "/system_ext/"
+            "/dev",
+            "/mnt",
+            "/vendor", // /vendor/lib64/egl/libEGL_emulation.so
+            "/system",
+            "/apex", // System libraries such as libart.so
+            "/sys",
+            "/data/misc",
+            "/system_ext",
         )
 
-        whitelistPaths("/storage/") // External storage, should be restricted in the future
+        whitelistPaths("/storage") // External storage, should be restricted in the future
         whitelistPaths("/data/data/$hostPkg/virtual/data/app/system/permissions.xml") // TODO Move to server writer
 
         // Redirect user data access to VirtualXposed internal file system
-        whitelistPaths(info.dataDir + "/")
+        whitelistPaths(info.dataDir)
         redirectDirectory("/data/data/${info.packageName}", info.dataDir)
         redirectDirectory("/data/user/0/${info.packageName}", info.dataDir)
 
@@ -100,14 +103,14 @@ class StorageSandbox {
         redirectDirectory("/data/data/${info.packageName}/lib/", libPath)
         redirectDirectory("/data/user/0/${info.packageName}/lib/", libPath)
 
-        whitelistPaths("/data/data/$hostPkg/virtual/data/app/${info.packageName}/")
-        whitelistPaths("/data/data/$hostPkg/virtual/data/user/$userId/${info.packageName}/")
+        whitelistPaths("/data/data/$hostPkg/virtual/data/app/${info.packageName}")
+        whitelistPaths("/data/data/$hostPkg/virtual/data/user/$userId/${info.packageName}")
 
         // TODO Maybe make a runtime copy and redirect?
         whitelistPaths("/data/data/$hostPkg/files/modules.json")
 
         // Read the base apk of VirtualXposed
-        whitelistPaths("/data/app/")
+        whitelistPaths("/data/app")
 
 //        val wifiMacAddressFile = deviceInfo.getWifiFile(userId).getPath();
 //        NativeEngine.redirectDirectory("/sys/class/net/wlan0/address", wifiMacAddressFile);
@@ -115,23 +118,6 @@ class StorageSandbox {
 //        NativeEngine.redirectDirectory("/sys/class/net/wifi/address", wifiMacAddressFile);
     }
 
-    fun getRedirectPath(path: String): String {
-        val absolutePath = normalized(path)
-        val redirectMap = redirectMap.value
-
-        val redirectPath =
-            // Get the largest match
-            redirectMap.keys.filter {
-                absolutePath.startsWith(it)
-            }.maxByOrNull { it.length }?.let { redirectKey ->
-                // If there is a match then get the replacement value
-                val replacement = redirectMap.getValue(redirectKey)
-                absolutePath.replace(redirectKey, replacement)
-            } ?: absolutePath
-
-        Timber.i("Redirected: $path -> $redirectPath")
-        return redirectPath
-    }
 
     /** Does not normalize path or account for redirect paths.
      * @see [getRedirectPath]
@@ -143,8 +129,12 @@ class StorageSandbox {
 //            }
     }
 
+    fun getRedirectPath(path: String): String {
+        return getRedirectPath(path, redirectMap.value)
+    }
+
     companion object {
-        // TODO READONLY?
+        // TODO actual per-directory permissions to support operations on parent dirs
         const val ALLOW = 1
         const val BLOCK = 1 shl 1
         const val NOTIFY = 1 shl 2
@@ -163,6 +153,23 @@ class StorageSandbox {
 
         internal fun whitelist(path: String, directoryRule: DirectoryRule): DirectoryRule {
             return setFlag(ALLOW, path, directoryRule)
+        }
+
+        fun getRedirectPath(path: String, redirectMap: Map<String, String>): String {
+            val absolutePath = normalized(path)
+
+            val redirectPath =
+                // Get the largest match
+                redirectMap.keys.filter {
+                    absolutePath.startsWith(it)
+                }.maxByOrNull { it.length }?.let { redirectKey ->
+                    // If there is a match then get the replacement value
+                    val replacement = redirectMap.getValue(redirectKey)
+                    absolutePath.replace(redirectKey, replacement)
+                } ?: absolutePath
+
+            Timber.i("Redirected: $path -> $redirectPath")
+            return redirectPath
         }
 
         private fun normalized(path: String): String {
@@ -194,7 +201,8 @@ class StorageSandbox {
 
             val firstIndex = path.indexOf("/").takeIf { it != -1 }?.plus(1) ?: path.length
             val parentPath = path.take(firstIndex)
-            val childPath = path.takeLast(path.length - firstIndex).ifEmpty { null }
+            val childPath =
+                path.takeLast(path.length - firstIndex).ifEmpty { null }?.trimEnd('/')?.plus('/')
 
             val subDir = directoryRule.directories[parentPath]
 
@@ -208,7 +216,8 @@ class StorageSandbox {
         fun setFlag(flag: Int, path: String, directoryRule: DirectoryRule): DirectoryRule {
             val firstIndex = path.indexOf("/").takeIf { it != -1 }?.plus(1) ?: path.length
             val parentPath = path.take(firstIndex)
-            val childPath = path.takeLast(path.length - firstIndex).ifEmpty { null }
+            val childPath =
+                path.takeLast(path.length - firstIndex).ifEmpty { null }?.trimEnd('/')?.plus('/')
 
             if (childPath != null) {
                 val currentRule = directoryRule.directories[parentPath] ?: DirectoryRule()

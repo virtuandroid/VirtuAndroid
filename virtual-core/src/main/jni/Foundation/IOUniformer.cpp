@@ -615,13 +615,13 @@ void IOUniformer::startUniformer(const char *so_path, int api_level, int preview
 //        HOOK_SYMBOL(handle, __openat_2);
 //        HOOK_SYMBOL(handle, fchownat);
 //        HOOK_SYMBOL(handle, renameat);
-//        HOOK_SYMBOL(handle, fstatat64);
-//        HOOK_SYMBOL(handle, statfs);
+        HOOK_SYMBOL(handle, fstatat64);
+        HOOK_SYMBOL(handle, statfs);
 //        HOOK_SYMBOL(handle, mkdirat);
 //        HOOK_SYMBOL(handle, mknodat);
 //        HOOK_SYMBOL(handle, truncate);
 //        HOOK_SYMBOL(handle, linkat);
-//        HOOK_SYMBOL(handle, readlinkat);
+        HOOK_SYMBOL(handle, readlinkat);
 //        HOOK_SYMBOL(handle, unlinkat);
 //        HOOK_SYMBOL(handle, symlinkat);
 //        HOOK_SYMBOL(handle, utimensat);

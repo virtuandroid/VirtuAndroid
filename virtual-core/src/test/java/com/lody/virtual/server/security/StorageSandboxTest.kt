@@ -16,12 +16,14 @@ private fun sandbox(vararg ops: Op): StorageSandbox.DirectoryRule =
 
 private fun StorageSandbox.DirectoryRule.assertAllowed(vararg paths: String) =
     paths.forEach {
-        assertTrue("Expected ALLOWED: '$it'", StorageSandbox.isPathAllowed(it, this))
+        val redirectPath = StorageSandbox.getRedirectPath(it, emptyMap())
+        assertTrue("Expected ALLOWED: '$it'", StorageSandbox.isPathAllowed(redirectPath, this))
     }
 
 private fun StorageSandbox.DirectoryRule.assertDenied(vararg paths: String) =
     paths.forEach {
-        assertFalse("Expected DENIED: '$it'", StorageSandbox.isPathAllowed(it, this))
+        val redirectPath = StorageSandbox.getRedirectPath(it, emptyMap())
+        assertFalse("Expected DENIED: '$it'", StorageSandbox.isPathAllowed(redirectPath, this))
     }
 
 /**
@@ -32,7 +34,10 @@ private fun StorageSandbox.DirectoryRule.assertDenied(vararg paths: String) =
  * 3. Specific directories can be blocklisted, to block
  *    specific subdirectories in an otherwise whitelisted directory
  *
+ * NOTE: Files and directories are functionally identical.
+ * This is because some syscalls interact with directories as if they were files.
  */
+// TODO Redirection tests!
 class StorageSandboxTest {
 
     // ---------------------------------------------------------------
@@ -61,13 +66,13 @@ class StorageSandboxTest {
     }
 
     @Test
-    fun fileWhitelist_trailingSlashVariantDenied() {
-        sandbox(allow("/home/test/example")).assertDenied("/home/test/example/")
+    fun fileWhitelist_trailingSlashVariantAllowed() {
+        sandbox(allow("/home/test/example")).assertAllowed("/home/test/example/")
     }
 
     @Test
-    fun fileWhitelist_childrenDenied() {
-        sandbox(allow("/home/test/example")).assertDenied(
+    fun fileWhitelist_childrenAllowed() {
+        sandbox(allow("/home/test/example")).assertAllowed(
             "/home/test/example/test",
             "/home/test/example/a/b/c"
         )
@@ -137,8 +142,8 @@ class StorageSandboxTest {
     }
 
     @Test
-    fun dirWhitelist_directoryPathWithoutTrailingSlashTreatedAsFileAndDenied() {
-        sandbox(allow("/home/test/")).assertDenied("/home/test")
+    fun dirWhitelist_directoryPathWithoutTrailingSlashTreatedAsFileAndAllowed() {
+        sandbox(allow("/home/test/")).assertAllowed("/home/test")
     }
 
     // ---------------------------------------------------------------
@@ -182,9 +187,9 @@ class StorageSandboxTest {
     }
 
     @Test
-    fun deepest_directoryBlocklistDoesNotCoverSameNameWithoutSlash() {
+    fun deepest_directoryBlocklistCoverSameNameWithoutSlash() {
         sandbox(allow("/home/"), block("/home/test/example/"))
-            .assertAllowed("/home/test/example")
+            .assertDenied("/home/test/example")
     }
 
     @Test
@@ -207,8 +212,8 @@ class StorageSandboxTest {
     fun deepest_fileWhitelistInsideBlocklistedDirectoryOnlyAllowsThatFile() {
         val rules = sandbox(allow("/"), block("/secret/"), allow("/secret/public.txt"))
 
-        rules.assertAllowed("/secret/public.txt", "/other")
-        rules.assertDenied("/secret/", "/secret/private.txt", "/secret/public.txt/child")
+        rules.assertAllowed("/secret/public.txt", "/other", "/secret/public.txt/child")
+        rules.assertDenied("/secret/", "/secret/private.txt")
     }
 
     @Test
@@ -311,7 +316,8 @@ class StorageSandboxTest {
 
     @Test
     fun traversal_dotDotCannotReenterBlocklistedDirectory() {
-        sandbox(allow("/home/"), block("/home/secret/")).assertDenied(
+        val rules = sandbox(allow("/home/"), block("/home/secret/"))
+        rules.assertDenied(
             "/home/test/../secret/file",
             "/home/./secret/file"
         )
@@ -323,7 +329,7 @@ class StorageSandboxTest {
     }
 
     @Test
-    fun traversal_singleDotSegmentDoesNotBypassFileRule() {
-        sandbox(allow("/home/test/example")).assertDenied("/home/test/example/.")
+    fun traversal_singleDotSegmentAllowsFile() {
+        sandbox(allow("/home/test/example")).assertAllowed("/home/test/example/.")
     }
 }

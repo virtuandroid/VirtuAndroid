@@ -200,7 +200,7 @@ static long proxy_syscall(ucontext_t *uc, int nr) {
             r.cloexec = I(1) & O_CLOEXEC;
             break;
 #endif
-        // TODO Better openat args
+            // TODO Better openat args
         case __NR_openat2:                                       // (path, flags, mode)
             r.op = OP_OPENAT;
             r.fd[0] = -1;                                     // same encoding DFD() gives AT_FDCWD
@@ -280,13 +280,11 @@ static long proxy_syscall(ucontext_t *uc, int nr) {
             r.a[0] = I(2);
             r.a[1] = I(3);
             break;
-#ifdef __LP64__
         case __NR_truncate:
             r.op = OP_TRUNCATE;
             r.path[0] = P(0);
             r.a[0] = I(1);
             break;
-#endif
         case __NR_linkat:
             r.op = OP_LINKAT;
             r.fd[0] = DFD(0);
@@ -390,6 +388,11 @@ int broker_client_install(int sock_fd) {
     return sigaction(SIGSYS, &sa, nullptr);
 }
 
+// On match: fall through to the TRAP return. On mismatch: skip over it.
+#define TRAP_SYSCALL(nr)                                         \
+    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (nr), 0, 1),             \
+    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP)
+
 void apply_seccomp_filter() {
     // 1. Prevent gaining new privileges via setuid/setgid binaries
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1) {
@@ -413,26 +416,40 @@ void apply_seccomp_filter() {
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ptrace, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA)),
 
-#ifdef __NR_open
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_open, 17, 0),
+
+#ifdef __NR_statfs64
+            TRAP_SYSCALL(__NR_statfs64),
 #endif
-//            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_connect, 16, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_openat2, 16, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_chdir, 15, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_utimensat, 14, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_symlinkat, 13, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_unlinkat, 12, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_readlinkat, 11, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_linkat, 10, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_truncate, 9, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mknodat, 8, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_mkdirat, 7, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_statfs, 6, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_newfstatat, 5, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_renameat, 4, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_kill, 3, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_fchownat, 2, 0),
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_openat, 1, 0),
+#ifdef __NR_fstatat64
+            TRAP_SYSCALL(__NR_fstatat64),
+#endif
+#ifdef __NR_open
+            TRAP_SYSCALL(__NR_open),
+#endif
+            // TRAP_SYSCALL(__NR_connect), // Fails
+            TRAP_SYSCALL(__NR_openat),
+            TRAP_SYSCALL(__NR_openat2),
+            TRAP_SYSCALL(__NR_chdir),
+            TRAP_SYSCALL(__NR_utimensat),
+            TRAP_SYSCALL(__NR_symlinkat),
+            TRAP_SYSCALL(__NR_unlinkat),
+            TRAP_SYSCALL(__NR_linkat),
+            TRAP_SYSCALL(__NR_truncate),
+            TRAP_SYSCALL(__NR_mknodat),
+            TRAP_SYSCALL(__NR_mkdirat),
+
+            // These are read-only syscalls which do not work well with the current
+            // sandbox design. They are not treated as sufficiently dangerous.
+
+            // TRAP_SYSCALL(__NR_statfs),
+            // TRAP_SYSCALL(__NR_newfstatat),
+            // TRAP_SYSCALL(__NR_readlinkat),
+
+            TRAP_SYSCALL(__NR_renameat),
+            TRAP_SYSCALL(__NR_renameat2),
+            TRAP_SYSCALL(__NR_kill),
+            TRAP_SYSCALL(__NR_fchownat),
+            TRAP_SYSCALL(__NR_getcwd),
 
             // ALLOW all other syscalls
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),

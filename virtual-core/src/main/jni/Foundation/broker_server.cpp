@@ -37,8 +37,9 @@
 /* Global state                                                               */
 /* ========================================================================== */
 
-// Handle to the Kotlin policy object. Set once in brokerServe() and only used from
-// that same thread (a JNIEnv is thread-bound)
+// Handle to the Kotlin storage sandbox object. Set once in brokerServe()
+// This is because we want to have safe path whitelist logic in Kotlin, as opposed
+// to making the C++ code too complex.
 struct JavaPolicy {
     JNIEnv *env = nullptr;
     jobject sandbox = nullptr;
