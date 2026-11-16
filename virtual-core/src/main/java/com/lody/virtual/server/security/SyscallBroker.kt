@@ -16,7 +16,7 @@ object SyscallBroker {
     var childBrokerDescriptor: ParcelFileDescriptor? = null
 
     // Child VUID -> Local FD
-    val processBrokerTable: MutableStateFlow<PersistentMap<Int, ParcelFileDescriptor>> =
+    private val processBrokerTable: MutableStateFlow<PersistentMap<Int, ParcelFileDescriptor>> =
         MutableStateFlow(
             persistentHashMapOf()
         )
@@ -40,6 +40,10 @@ object SyscallBroker {
         return brokerClientInstall(fd)
     }
 
+    fun destroyServer(guestPid: Int) {
+        destroyBroker(guestPid)
+    }
+
     @JvmStatic
     fun initServer(guestPid: Int, guestVuid: Int, sandbox: StorageSandbox) {
         val local = processBrokerTable.value[guestVuid] ?: return
@@ -53,10 +57,12 @@ object SyscallBroker {
                     brokerServe(local.fd, guestPid, sandbox)
                 }
             }
-            Timber.e("Broker server crashed!")
+
+            Timber.e("Broker server for guest pid: $guestPid exited!")
         }
     }
 
     private external fun brokerServe(fd: Int, pid: Int, sandbox: StorageSandbox)
     private external fun brokerClientInstall(fd: Int): Boolean
+    private external fun destroyBroker(pid: Int)
 }

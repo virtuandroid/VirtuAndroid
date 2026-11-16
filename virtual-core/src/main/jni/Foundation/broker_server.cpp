@@ -24,6 +24,8 @@
 #include <unistd.h>
 
 #include <jni.h>
+#include <atomic>
+#include <map>
 
 #include "broker_proto.h"
 #include "fb/ALog.h"
@@ -43,9 +45,14 @@
 struct JavaPolicy {
     JNIEnv *env = nullptr;
     jobject sandbox = nullptr;
+    bool running = false;
     jmethodID check_method = nullptr;   // boolean isPathAllowed(String)
     jmethodID redirect_method = nullptr;   // String getRedirectPath(String)
 };
+
+// Thread-safe container for multiple server instances
+pthread_mutex_t g_servers_mutex = PTHREAD_MUTEX_INITIALIZER;
+std::map<pid_t, JavaPolicy> g_servers;
 
 static thread_local JavaPolicy g_policy;
 static thread_local char g_cwd[PATH_MAX] = "/";
@@ -598,24 +605,25 @@ static int64_t h_kill(struct ctx *c) {
 
 static const struct {
     int64_t (*fn)(struct ctx *);
+
     uint8_t npaths;                             // how many path strings the op accepts
 } kOps[OP_COUNT] = {
-        [OP_OPENAT]    = {h_openat,    1},
-        [OP_FSTATAT]   = {h_fstatat,   1},
-        [OP_STATFS]    = {h_statfs,    1},
-        [OP_FCHOWNAT]  = {h_fchownat,  1},
-        [OP_RENAMEAT]  = {h_renameat,  2},
-        [OP_MKDIRAT]   = {h_mkdirat,   1},
-        [OP_MKNODAT]   = {h_mknodat,   1},
-        [OP_TRUNCATE]  = {h_truncate,  1},
-        [OP_LINKAT]    = {h_linkat,    2},
-        [OP_READLINKAT]= {h_readlinkat,1},
-        [OP_UNLINKAT]  = {h_unlinkat,  1},
+        [OP_OPENAT]    = {h_openat, 1},
+        [OP_FSTATAT]   = {h_fstatat, 1},
+        [OP_STATFS]    = {h_statfs, 1},
+        [OP_FCHOWNAT]  = {h_fchownat, 1},
+        [OP_RENAMEAT]  = {h_renameat, 2},
+        [OP_MKDIRAT]   = {h_mkdirat, 1},
+        [OP_MKNODAT]   = {h_mknodat, 1},
+        [OP_TRUNCATE]  = {h_truncate, 1},
+        [OP_LINKAT]    = {h_linkat, 2},
+        [OP_READLINKAT]= {h_readlinkat, 1},
+        [OP_UNLINKAT]  = {h_unlinkat, 1},
         [OP_SYMLINKAT] = {h_symlinkat, 2},
         [OP_UTIMENSAT] = {h_utimensat, 1},
-        [OP_CHDIR]     = {h_chdir,     1},
-        [OP_GETCWD]    = {h_getcwd,    0},
-        [OP_KILL]      = {h_kill,      0},
+        [OP_CHDIR]     = {h_chdir, 1},
+        [OP_GETCWD]    = {h_getcwd, 0},
+        [OP_KILL]      = {h_kill, 0},
 };
 
 /* ========================================================================== */
@@ -625,8 +633,8 @@ static const struct {
 // Sends the response header, optional output payload and optional fd (SCM_RIGHTS).
 static void reply(int sock, int64_t result, const void *out, uint32_t out_len, int fd) {
     struct broker_resp_hdr resp = {BROKER_MAGIC, out_len, result};
-    struct iovec iov[2] = {{&resp,         sizeof resp},
-                           {(void *) out,  out_len}};
+    struct iovec iov[2] = {{&resp,        sizeof resp},
+                           {(void *) out, out_len}};
 
     union {
         char buf[CMSG_SPACE(sizeof(int))];
@@ -681,6 +689,13 @@ static void broker_serve(int sock, pid_t client_pid) {
     thread_local static struct ctx c;
 
     while (true) {
+        pthread_mutex_lock(&g_servers_mutex);
+
+        if (!g_servers[client_pid].running) {
+            return;
+        }
+        pthread_mutex_unlock(&g_servers_mutex);
+
         // ---- receive one request (+ up to 2 fds) ----
         union {
             char buf[CMSG_SPACE(2 * sizeof(int))];
@@ -765,19 +780,39 @@ Java_com_lody_virtual_server_security_SyscallBroker_brokerServe(JNIEnv *env, job
         env->ExceptionClear();
         return;
     }
-    jmethodID redirect_method = env->GetMethodID(cls, "getRedirectPath", "(Ljava/lang/String;)Ljava/lang/String;");
+    jmethodID redirect_method = env->GetMethodID(cls, "getRedirectPath",
+                                                 "(Ljava/lang/String;)Ljava/lang/String;");
     env->DeleteLocalRef(cls);
     if (redirect_method == nullptr) {
         env->ExceptionClear();
         return;
     }
 
-    g_policy.env = env ;
+    g_policy.env = env;
     g_policy.sandbox = sandbox;
     g_policy.check_method = check_method;
+    g_policy.running = true;
     g_policy.redirect_method = redirect_method;
+
+    pthread_mutex_lock(&g_servers_mutex);
+    g_servers[pid] = g_policy;
+    pthread_mutex_unlock(&g_servers_mutex);
 
     ALOGD("Starting the syscall broker for %d on fd %d", pid, fd);
     broker_serve(fd, pid);
     g_policy = {};
+}
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_lody_virtual_server_security_SyscallBroker_destroyBroker(JNIEnv *env, jobject thiz,
+                                                                  jint pid) {
+    pthread_mutex_lock(&g_servers_mutex);
+    auto it = g_servers.find(pid);
+
+    if (it != g_servers.end()) {
+        // The server exists, safe to update
+        it->second.running = false;
+    }
+
+    pthread_mutex_unlock(&g_servers_mutex);
 }

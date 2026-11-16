@@ -824,6 +824,8 @@ class VActivityManagerService : IActivityManager.Stub() {
         processDead(record)
         record.lock.open()
 
+        SyscallBroker.destroyServer(record.pid)
+
         val message: LogMessage = AppDeath()
         val holder = LogMessageHolder.Builder(message)
             .setPackageName(record.processName ?: "")

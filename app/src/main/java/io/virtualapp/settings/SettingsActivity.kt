@@ -116,7 +116,7 @@ class SettingsActivity : VActivity() {
                     .setTitle(io.virtualapp.R.string.settings_reboot_title)
                     .setMessage(getResources().getString(io.virtualapp.R.string.settings_reboot_content))
                     .setPositiveButton(
-                        R.string.yes
+                        android.R.string.yes
                     ) { _: DialogInterface?, _: Int ->
                         VirtualCore.get().killAllApps()
                         Toast.makeText(
@@ -124,7 +124,7 @@ class SettingsActivity : VActivity() {
                             Toast.LENGTH_SHORT
                         ).show()
                     }
-                    .setNegativeButton(R.string.no, null)
+                    .setNegativeButton(android.R.string.no, null)
                     .create()
                 try {
                     alertDialog.show()
