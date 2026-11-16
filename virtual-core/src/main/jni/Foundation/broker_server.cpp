@@ -71,6 +71,7 @@ struct ctx {
 static bool isPathAllowed(const char *path) {
     JNIEnv *env = g_policy.env;
 
+    // TODO ensure UTF is valid
     jstring jpath = env->NewStringUTF(path);
     if (jpath == nullptr) {             // OOM or exception pending
         env->ExceptionClear();
@@ -257,7 +258,7 @@ static int open_parent(const char *abs, int *pfd, char leaf[NAME_MAX + 1]) {
 
 #define OPEN_OK_FLAGS (O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND | O_CLOEXEC | \
                        O_LARGEFILE | O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | \
-                       O_PATH | O_SYNC)
+                       O_PATH | O_SYNC | O_NOATIME | O_DSYNC | O_DIRECT)
 
 // Only regular files, directories and character devices may be handed to the client.
 // (No FIFOs, sockets or block devices.)
@@ -506,6 +507,7 @@ static int64_t h_unlinkat(struct ctx *c) {
 }
 
 // path0 = target text, path1 = link path (resolved against dirfd slot 1)
+// TODO Ensure that the host process does not touch application data, otherwise it can follow symlinks
 static int64_t h_symlinkat(struct ctx *c) {
     char abs[PATH_MAX], leaf[NAME_MAX + 1];
     AUTOFD pfd = -1;
@@ -582,61 +584,12 @@ static int64_t h_getcwd(struct ctx *c) {
 /* Handlers: signals and sockets                                              */
 /* ========================================================================== */
 
-// a[0] = pid, a[1] = signal. The client may only signal itself, with a safe signal.
 static int64_t h_kill(struct ctx *c) {
-    static const uint32_t kAllowedSignals =
-            (1u << 0)                           // sig 0: existence probe
-            | (1u << SIGHUP) | (1u << SIGINT) | (1u << SIGTERM)
-            | (1u << SIGUSR1) | (1u << SIGUSR2);
-
     int pid = (int) c->h->a[0];
     int sig = (int) c->h->a[1];
     if (pid != g_client_pid) return -EPERM;     // no pid 0, -1, groups or other processes
-    if (sig < 0 || sig >= 32 || !((1u << sig) & kAllowedSignals)) return -EPERM;
+    if (sig < 0 || sig >= 32 || !((1u << sig))) return -EPERM;
     return SC(kill(pid, sig));
-}
-
-// Socket fd in slot 0, sockaddr in the blob.
-static int64_t h_connect(struct ctx *c) {
-    int fd = c->fd[0];
-    if (fd < 0) return -EBADF;
-
-    uint32_t len = c->h->blob_len;
-    if (len < sizeof(sa_family_t) || len > sizeof(struct sockaddr_storage)) return -EINVAL;
-
-    // Work on our own snapshot so the client can't race the contents.
-    struct sockaddr_storage ss{};
-    memcpy(&ss, c->blob, len);
-
-    // The address family must match the socket's domain (this also proves fd is a socket).
-    int domain;
-    socklen_t dl = sizeof domain;
-    if (getsockopt(fd, SOL_SOCKET, SO_DOMAIN, &domain, &dl) < 0) return -errno;
-    if (domain != ss.ss_family) return -EAFNOSUPPORT;
-
-    if (ss.ss_family == AF_UNIX) {
-        auto *un = (struct sockaddr_un *) &ss;
-        size_t off = offsetof(struct sockaddr_un, sun_path);
-        if (len <= off + 1 || un->sun_path[0] == 0) return -EPERM;      // no abstract/unnamed
-        if (!memchr(un->sun_path, 0, len - off)) return -EINVAL;        // must be NUL-terminated
-
-        char real[PATH_MAX];
-        if (!realpath(un->sun_path, real)) return -errno;
-        if (!isPathAllowed(real)) return -EACCES;
-
-        struct sockaddr_un out = {.sun_family = AF_UNIX};
-        if (strlen(real) >= sizeof out.sun_path) return -ENAMETOOLONG;
-        strcpy(out.sun_path, real);
-        return SC(connect(fd, (struct sockaddr *) &out, sizeof out));
-    }
-
-    if (ss.ss_family == AF_INET) {              // policy: loopback only
-        auto *in = (struct sockaddr_in *) &ss;
-        if (len < sizeof *in || ntohl(in->sin_addr.s_addr) != INADDR_LOOPBACK) return -EACCES;
-        return SC(connect(fd, (struct sockaddr *) in, sizeof *in));
-    }
-
-    return -EAFNOSUPPORT;
 }
 
 /* ========================================================================== */
@@ -663,7 +616,6 @@ static const struct {
         [OP_CHDIR]     = {h_chdir,     1},
         [OP_GETCWD]    = {h_getcwd,    0},
         [OP_KILL]      = {h_kill,      0},
-        [OP_CONNECT]   = {h_connect,   0},
 };
 
 /* ========================================================================== */
@@ -722,11 +674,11 @@ static bool request_is_valid(const struct broker_req_hdr *h, ssize_t n, int nfd,
 static void broker_serve(int sock, pid_t client_pid) {
     g_client_pid = client_pid;   // NOT SO_PEERCRED: for a socketpair that reports the *creator*
 
-    static struct {
+    thread_local static struct {
         struct broker_req_hdr h;
         uint8_t data[2 * PATH_MAX + BROKER_MAX_BLOB];
     } req;
-    static struct ctx c;
+    thread_local static struct ctx c;
 
     while (true) {
         // ---- receive one request (+ up to 2 fds) ----

@@ -63,11 +63,12 @@ class StorageSandbox {
         val hostPkg = VirtualCore.get().hostPkg
 
         // Use this if something fails to figure out if it's the storage sandbox or something else.
-        // whitelistPaths("/")
+//         whitelistPaths("/")
 
         // Only allow the app to inspect its own proc
         whitelistPaths("/proc/$pid")
         redirectDirectory("/proc/self", "/proc/$pid")
+        // TODO implement /proc/thread-self
 
         // Important system directories required for runtime
         whitelistPaths(

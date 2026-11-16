@@ -90,6 +90,7 @@ dependencies {
     implementation("dev.rikka.rikkax.parcelablelist:parcelablelist:2.0.1")
     implementation("com.github.ChickenHook:RestrictionBypass:c59bd6a")
     implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.5.2")
+    implementation("androidx.tracing:tracing-ktx:2.0.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("androidx.test:runner:1.7.0")
 }

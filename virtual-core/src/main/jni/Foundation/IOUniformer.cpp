@@ -606,29 +606,31 @@ void IOUniformer::startUniformer(const char *so_path, int api_level, int preview
     setenv("V_PREVIEW_API_LEVEL", api_level_chars, 1);
 
     void *handle = dlopen("libc.so", RTLD_NOW);
+
+    // TODO use same IO sandboxing as seccomp
     if (handle) {
 #ifdef __x86_64__
-//        HOOK_SYMBOL(handle, open);
-//        HOOK_SYMBOL(handle, __open_2);
+        HOOK_SYMBOL(handle, open);
+        HOOK_SYMBOL(handle, __open_2);
 #endif
-//        HOOK_SYMBOL(handle, openat);
-//        HOOK_SYMBOL(handle, __openat_2);
-//        HOOK_SYMBOL(handle, fchownat);
-//        HOOK_SYMBOL(handle, renameat);
+        HOOK_SYMBOL(handle, openat);
+        HOOK_SYMBOL(handle, __openat_2);
+        HOOK_SYMBOL(handle, fchownat);
+        HOOK_SYMBOL(handle, renameat);
         HOOK_SYMBOL(handle, fstatat64);
         HOOK_SYMBOL(handle, statfs);
-//        HOOK_SYMBOL(handle, mkdirat);
-//        HOOK_SYMBOL(handle, mknodat);
-//        HOOK_SYMBOL(handle, truncate);
-//        HOOK_SYMBOL(handle, linkat);
+        HOOK_SYMBOL(handle, mkdirat);
+        HOOK_SYMBOL(handle, mknodat);
+        HOOK_SYMBOL(handle, truncate);
+        HOOK_SYMBOL(handle, linkat);
         HOOK_SYMBOL(handle, readlinkat);
-//        HOOK_SYMBOL(handle, unlinkat);
-//        HOOK_SYMBOL(handle, symlinkat);
-//        HOOK_SYMBOL(handle, utimensat);
-//        HOOK_SYMBOL(handle, chdir);
-//        HOOK_SYMBOL(handle, execve);
-//        HOOK_SYMBOL(handle, statfs64);
-//        HOOK_SYMBOL(handle, kill);
+        HOOK_SYMBOL(handle, unlinkat);
+        HOOK_SYMBOL(handle, symlinkat);
+        HOOK_SYMBOL(handle, utimensat);
+        HOOK_SYMBOL(handle, chdir);
+        HOOK_SYMBOL(handle, execve);
+        HOOK_SYMBOL(handle, statfs64);
+        HOOK_SYMBOL(handle, kill);
         HOOK_SYMBOL(handle, connect);
         dlclose(handle);
     }

@@ -393,6 +393,11 @@ int broker_client_install(int sock_fd) {
     BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (nr), 0, 1),             \
     BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP)
 
+#define DENY_SYSCALL(nr) \
+    BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K, (nr), 0, 1), \
+    BPF_STMT(BPF_RET|BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA))
+//    BPF_STMT(BPF_RET|BPF_K, SECCOMP_RET_KILL_PROCESS)
+
 void apply_seccomp_filter() {
     // 1. Prevent gaining new privileges via setuid/setgid binaries
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1) {
@@ -413,10 +418,32 @@ void apply_seccomp_filter() {
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
 
             // Disable ptrace
-            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, __NR_ptrace, 0, 1),
-            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA)),
+            DENY_SYSCALL(__NR_ptrace),
 
+            // Disable cross-process access
+//            DENY_SYSCALL(__NR_process_vm_readv), // Used in copy_from_self
+//            DENY_SYSCALL(__NR_process_vm_writev),
 
+            // Disable syscalls which open stuff from the kernel
+            DENY_SYSCALL(__NR_io_uring_setup),
+            DENY_SYSCALL(__NR_io_uring_enter),
+            DENY_SYSCALL(__NR_io_uring_register),
+
+            // Generally unused, but dangerous syscalls
+            DENY_SYSCALL(__NR_name_to_handle_at),
+            DENY_SYSCALL(__NR_open_by_handle_at),
+            DENY_SYSCALL(__NR_mount),
+            DENY_SYSCALL(__NR_umount2),
+            DENY_SYSCALL(__NR_pivot_root),
+            DENY_SYSCALL(__NR_setns),
+            DENY_SYSCALL(__NR_pidfd_open),
+            DENY_SYSCALL(__NR_pidfd_getfd),
+            DENY_SYSCALL(__NR_bpf),
+            DENY_SYSCALL(__NR_userfaultfd),
+            DENY_SYSCALL(__NR_kcmp),
+
+            // Deprecated thread killing syscall which should not be used by processes
+            DENY_SYSCALL(__NR_tkill),
 #ifdef __NR_statfs64
             TRAP_SYSCALL(__NR_statfs64),
 #endif
@@ -432,7 +459,7 @@ void apply_seccomp_filter() {
             TRAP_SYSCALL(__NR_chdir),
             TRAP_SYSCALL(__NR_utimensat),
             TRAP_SYSCALL(__NR_symlinkat),
-            TRAP_SYSCALL(__NR_unlinkat),
+//            TRAP_SYSCALL(__NR_unlinkat),
             TRAP_SYSCALL(__NR_linkat),
             TRAP_SYSCALL(__NR_truncate),
             TRAP_SYSCALL(__NR_mknodat),
@@ -448,6 +475,9 @@ void apply_seccomp_filter() {
             TRAP_SYSCALL(__NR_renameat),
             TRAP_SYSCALL(__NR_renameat2),
             TRAP_SYSCALL(__NR_kill),
+
+            // TODO: tgkill, rt_sigqueueinfo, rt_tgsigqueueinfo, pidfd_send_signal
+
             TRAP_SYSCALL(__NR_fchownat),
             TRAP_SYSCALL(__NR_getcwd),
 

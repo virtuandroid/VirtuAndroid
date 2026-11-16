@@ -1,6 +1,7 @@
 package com.lody.virtual.server.security
 
 import android.os.ParcelFileDescriptor
+import androidx.tracing.trace
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,9 +41,16 @@ object SyscallBroker {
     fun initServer(guestPid: Int, guestVuid: Int, sandbox: StorageSandbox) {
         val local = processBrokerTable.value[guestVuid] ?: return
 
-        // TODO is thread correct here?
+        // TODO stop thread on death
         thread {
-            brokerServe(local.fd, guestPid, sandbox)
+            // TODO implement correct g_cwd
+            // Use readlink("/proc/$guestPid/cwd")
+            runCatching {
+                trace("SyscallBroker") {
+                    brokerServe(local.fd, guestPid, sandbox)
+                }
+            }
+            Timber.e("Broker server crashed!")
         }
     }
 

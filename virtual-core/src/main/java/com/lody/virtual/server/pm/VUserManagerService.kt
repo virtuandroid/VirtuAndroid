@@ -111,6 +111,7 @@ class VUserManagerService private constructor(
     }
 
     override fun getUsers(excludeDying: Boolean): List<VUserInfo?> {
+        // TODO race condition in: com.android.launcher3.compat.UserManagerCompatVA.getUserProfiles
         checkManageUsersPermission("query users");
         synchronized(mPackagesLock) {
             val users = ArrayList<VUserInfo?>(mUsers.size)
