@@ -398,11 +398,11 @@ int broker_client_install(int sock_fd) {
     BPF_STMT(BPF_RET|BPF_K, SECCOMP_RET_ERRNO | (EPERM & SECCOMP_RET_DATA))
 //    BPF_STMT(BPF_RET|BPF_K, SECCOMP_RET_KILL_PROCESS)
 
-void apply_seccomp_filter() {
+bool apply_seccomp_filter() {
     // 1. Prevent gaining new privileges via setuid/setgid binaries
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == -1) {
         ALOGD("Failed to set PR_SET_NO_NEW_PRIVS");
-        return;
+        return false;
     }
 
     // 2. Define the BPF Filter Instructions
@@ -499,17 +499,19 @@ void apply_seccomp_filter() {
     // 3. Apply the filter using prctl
     if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog) == -1) {
         ALOGD("Failed to apply Seccomp filter");
-        return;
+        return false;
     }
 
     ALOGD("Applied Seccomp filter successfully");
+    return true;
 }
 
 extern "C"
-JNIEXPORT void JNICALL
+JNIEXPORT jboolean JNICALL
 Java_com_lody_virtual_server_security_SyscallBroker_brokerClientInstall(JNIEnv *env, jobject thiz,
                                                                         jint fd) {
     ALOGI("Installing client fd: %d", fd);
     broker_client_install(fd);
-    apply_seccomp_filter();
+    bool result = apply_seccomp_filter();
+    return result;
 }

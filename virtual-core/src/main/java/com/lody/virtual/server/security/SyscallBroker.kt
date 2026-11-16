@@ -10,6 +10,9 @@ import timber.log.Timber
 import kotlin.concurrent.thread
 
 object SyscallBroker {
+    /**
+     * This is null if the parent does hand over a broker (seccomp disabled).
+     */
     var childBrokerDescriptor: ParcelFileDescriptor? = null
 
     // Child VUID -> Local FD
@@ -32,9 +35,9 @@ object SyscallBroker {
     }
 
     @JvmStatic
-    fun initClient() {
-        val fd = childBrokerDescriptor?.fd ?: return
-        brokerClientInstall(fd)
+    fun initClient(): Boolean {
+        val fd = childBrokerDescriptor?.fd ?: return false
+        return brokerClientInstall(fd)
     }
 
     @JvmStatic
@@ -55,5 +58,5 @@ object SyscallBroker {
     }
 
     private external fun brokerServe(fd: Int, pid: Int, sandbox: StorageSandbox)
-    private external fun brokerClientInstall(fd: Int)
+    private external fun brokerClientInstall(fd: Int): Boolean
 }

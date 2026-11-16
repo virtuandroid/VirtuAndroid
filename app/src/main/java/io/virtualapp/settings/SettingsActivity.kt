@@ -1,14 +1,13 @@
 package io.virtualapp.settings
 
-import android.R
 import android.app.AlertDialog
 import android.app.ProgressDialog
 import android.content.DialogInterface
 import android.content.Intent
 import android.os.Bundle
-import android.preference.Preference
-import android.preference.PreferenceFragment
 import android.widget.Toast
+import androidx.preference.Preference
+import androidx.preference.PreferenceFragmentCompat
 import com.android.launcher3.LauncherFiles
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.server.log.VLoggingManagerService
@@ -29,9 +28,9 @@ class SettingsActivity : VActivity() {
 
         if (savedInstanceState == null) {
             // Display the fragment as the main content.
-            fragmentManager
+            supportFragmentManager
                 .beginTransaction()
-                .replace(R.id.content, SettingsFragment())
+                .replace(android.R.id.content, SettingsFragment())
                 .commit()
         }
     }
@@ -39,68 +38,80 @@ class SettingsActivity : VActivity() {
     /**
      * This fragment shows the launcher preferences.
      */
-    class SettingsFragment : PreferenceFragment() {
+    class SettingsFragment : PreferenceFragmentCompat() {
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)
             preferenceManager.setSharedPreferencesName(LauncherFiles.SHARED_PREFERENCES_KEY)
             addPreferencesFromResource(io.virtualapp.R.xml.settings_preferences)
 
-            findPreference(ADD_APP_PREFERENCE).setOnPreferenceClickListener { _: Preference? ->
+            findPreference<Preference>(ADD_APP_PREFERENCE)?.setOnPreferenceClickListener { _: Preference? ->
                 ListAppActivity.gotoListApp(activity)
                 false
             }
 
-            val moduleManage = findPreference(MODULE_MANAGE_PREFERENCE)
-            moduleManage.setOnPreferenceClickListener { _: Preference? ->
+            val moduleManage = findPreference<Preference>(MODULE_MANAGE_PREFERENCE)
+            moduleManage?.setOnPreferenceClickListener { _: Preference? ->
                 startActivity(Intent(activity, ModuleActivity::class.java))
                 false
             }
 
-            findPreference(ADVANCED_SETTINGS_PREFERENCE)
-                .setOnPreferenceClickListener { _: Preference? ->
+            // Security Settings
+            findPreference<Preference>(SECURITY_SETTINGS_PREFERENCE)?.onPreferenceClickListener =
+                Preference.OnPreferenceClickListener {
+                    startActivity(Intent(activity, SecuritySettingsActivity::class.java))
+                    false
+                }
+
+            findPreference<Preference>(ADVANCED_SETTINGS_PREFERENCE)
+                ?.setOnPreferenceClickListener { _: Preference? ->
                     startActivity(Intent(activity, AdvancedSettingsActivity::class.java))
                     true
                 }
 
-            findPreference(PERMISSION_MANAGE_PREFERENCE)
-                .setOnPreferenceClickListener { _: Preference? ->
+            findPreference<Preference>(PERMISSION_MANAGE_PREFERENCE)
+                ?.setOnPreferenceClickListener { _: Preference? ->
                     startActivity(Intent(activity, PermissionsActivity::class.java))
                     true
                 }
 
-            findPreference(APP_MANAGE_PREFERENCE).setOnPreferenceClickListener { _: Preference? ->
+            findPreference<Preference>(APP_MANAGE_PREFERENCE)?.setOnPreferenceClickListener { _: Preference? ->
                 startActivity(Intent(activity, AppManageActivity::class.java))
                 false
             }
 
-            findPreference(TASK_MANAGE_PREFERENCE).setOnPreferenceClickListener { _: Preference? ->
+            findPreference<Preference>(TASK_MANAGE_PREFERENCE)?.setOnPreferenceClickListener { _: Preference? ->
                 startActivity(Intent(activity, TaskManageActivity::class.java))
                 false
             }
 
-            findPreference(LOG_EXPORT_PREFERENCE).setOnPreferenceClickListener { _: Preference? ->
+            findPreference<Preference>(LOG_EXPORT_PREFERENCE)?.setOnPreferenceClickListener { _: Preference? ->
                 val logDir = File(VLoggingManagerService.get().logDir)
                 val latestLog = logDir.listFiles()?.toList()?.maxByOrNull { it.lastModified() }
                 if (latestLog == null) {
                     Toast.makeText(context, "No log found!", Toast.LENGTH_LONG).show()
                     return@setOnPreferenceClickListener false
                 }
-                val result = FileUtils.saveFileToDownloads(activity, latestLog, "text/plain")
+                val result =
+                    FileUtils.saveFileToDownloads(requireContext(), latestLog, "text/plain")
                 if (result == null) {
                     Toast.makeText(context, "Unable to save log!", Toast.LENGTH_LONG).show()
                 } else {
-                    Toast.makeText(context, "Saved file ${latestLog.name} to Downloads", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        context,
+                        "Saved file ${latestLog.name} to Downloads",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
                 false
             }
 
 
-            findPreference(ABOUT_PREFERENCE).setOnPreferenceClickListener { _: Preference? ->
+            findPreference<Preference>(ABOUT_PREFERENCE)?.setOnPreferenceClickListener { _: Preference? ->
                 startActivity(Intent(activity, AboutActivity::class.java))
                 false
             }
 
-            findPreference(REBOOT_PREFERENCE).setOnPreferenceClickListener { _: Preference? ->
+            findPreference<Preference>(REBOOT_PREFERENCE)?.setOnPreferenceClickListener { _: Preference? ->
                 val alertDialog = AlertDialog.Builder(activity)
                     .setTitle(io.virtualapp.R.string.settings_reboot_title)
                     .setMessage(getResources().getString(io.virtualapp.R.string.settings_reboot_content))
@@ -123,10 +134,12 @@ class SettingsActivity : VActivity() {
             }
 
             val xposedEnabled = VirtualCore.get().isXposedEnabled
-            if (!xposedEnabled) {
+            if (!xposedEnabled && moduleManage != null) {
                 preferenceScreen.removePreference(moduleManage)
             }
         }
+
+        override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {}
 
         override fun startActivity(intent: Intent?) {
             try {
@@ -166,5 +179,6 @@ class SettingsActivity : VActivity() {
         private const val LOG_EXPORT_PREFERENCE = "settings_log_export"
         private const val ABOUT_PREFERENCE = "settings_about"
         private const val REBOOT_PREFERENCE = "settings_reboot"
+        private const val SECURITY_SETTINGS_PREFERENCE = "settings_security"
     }
 }

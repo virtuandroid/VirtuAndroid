@@ -926,9 +926,13 @@ class VActivityManagerService : IActivityManager.Stub() {
     ): ProcessRecord? {
         val app = ProcessRecord(info, processName, vuid, vpid)
         val extras = Bundle()
+        val seccompEnabled = VirtualCore.get().isSeccompEnabled
+
         BundleCompat.putBinder(extras, BUNDLE_BINDER, app)
-        val broker = SyscallBroker.generateBroker(vuid)
-        extras.putParcelable(BUNDLE_SYSCALL_BROKER_FD, broker)
+        if (seccompEnabled) {
+            val broker = SyscallBroker.generateBroker(vuid)
+            extras.putParcelable(BUNDLE_SYSCALL_BROKER_FD, broker)
+        }
         extras.putInt(BUNDLE_VUID, vuid)
         val res = ProviderCall.call(
             VASettings.getStubAuthority(vpid),
@@ -940,10 +944,14 @@ class VActivityManagerService : IActivityManager.Stub() {
             return null
         }
         val pid = res.getInt(BUNDLE_PID)
-        val sandbox = StorageSandbox().apply {
-            initSandboxForPid(info, pid)
+
+        if (seccompEnabled) {
+            val sandbox = StorageSandbox().apply {
+                initSandboxForPid(info, pid)
+            }
+            SyscallBroker.initServer(pid, vuid, sandbox)
         }
-        SyscallBroker.initServer(pid, vuid, sandbox)
+
         val clientBinder = BundleCompat.getBinder(res, BUNDLE_CLIENT_BINDER)
         return if (attachClient(pid, clientBinder)) {
             app

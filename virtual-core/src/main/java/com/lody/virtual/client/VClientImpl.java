@@ -356,8 +356,13 @@ public final class VClientImpl extends IVClient.Stub {
             applicationInfo.splitNames = new String[1];
         }
 
-        // TODO kill child app if seccomp filters were not applied!
-        SyscallBroker.initClient();
+        boolean seccompEnabled = VirtualCore.get().isSeccompEnabled();
+        if (seccompEnabled) {
+            boolean initResult = SyscallBroker.initClient();
+            if (!initResult) {
+                throw new IllegalStateException("SECCOMP Initialization failed!");
+            }
+        }
 
         boolean enableXposed = VirtualCore.get().isXposedEnabled();
         if (enableXposed) {

@@ -92,6 +92,7 @@
     <string name="settings_task_manage_text">Manage Tasks</string>
     <string name="settings_app_manage_text">Manage Apps</string>
     <string name="settings_desktop_text">Desktop Settings</string>
+    <string name="settings_security_text">Security Settings</string>
     <string name="app_manage_uninstall">Uninstall</string>
     <string name="app_manage_repair">Repair</string>
     <string name="settings_title">Settings</string>
@@ -220,4 +221,7 @@ Currently, EXposed has been put on the app store and renamed to Tai Chi. You can
     <string name="install_complete_and_open">Open</string>
     <string name="unsupported_for_32bit_app">32bits App is not supported!</string>
     <string name="package_state_unknown">Unknown</string>
+
+    <string name="security_settings_disable_seccomp_summary">When disabled, seccomp will not be applied to guest processes. This significantly weakens sandboxing, but may increase app compatibility. Only disable if running trusted apps.</string>
+    <string name="security_settings_disable_seccomp">Disable seccomp sandbox</string>
 </resources>

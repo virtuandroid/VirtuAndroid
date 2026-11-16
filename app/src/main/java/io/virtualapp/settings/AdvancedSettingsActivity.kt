@@ -52,15 +52,6 @@ class AdvancedSettingsActivity : VActivity() {
                     true
                 }
 
-            val fingerprint = findPreference<ListPreference>(FINGERPRINT_INCONSISTENT)
-            fingerprint?.value = VLoggingClient.get().getFingerprintAction()?.toString()
-            fingerprint?.onPreferenceChangeListener =
-                Preference.OnPreferenceChangeListener { _, k ->
-                    val key = (k as? Int) ?: (k as? String)?.toIntOrNull() ?: return@OnPreferenceChangeListener false
-                    val success = VLoggingClient.get().setFingerprintAction(key)
-                    return@OnPreferenceChangeListener success
-                }
-
             setupFileFlagPreference(DISABLE_XPOSED, ".disable_xposed")
             setupFileFlagPreference(DISABLE_RESIDENT_NOTIFICATION, Constants.NO_NOTIFICATION_FLAG)
             setupFileFlagPreference(ALLOW_FAKE_SIGNATURE, Constants.FAKE_SIGNATURE_FLAG)
@@ -157,7 +148,6 @@ class AdvancedSettingsActivity : VActivity() {
         private const val INSTALL_GMS_PREFERENCE = "advance_settings_install_gms"
         private const val FILE_MANAGE = "settings_file_manage"
         private const val DISABLE_XPOSED = "advance_settings_disable_xposed"
-        private const val FINGERPRINT_INCONSISTENT = "advance_settings_fingerprint_action"
         private const val DISABLE_RESIDENT_NOTIFICATION =
             "advance_settings_disable_resident_notification"
         private const val HIDE_SETTINGS_PREFERENCE = "advance_settings_hide_settings"

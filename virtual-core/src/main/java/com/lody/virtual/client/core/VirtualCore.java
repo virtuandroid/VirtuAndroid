@@ -453,6 +453,10 @@ public final class VirtualCore {
         return !VirtualCore.get().getContext().getFileStreamPath(".disable_xposed").exists();
     }
 
+    public boolean isSeccompEnabled() {
+        return !VirtualCore.get().getContext().getFileStreamPath(".disable_seccomp").exists();
+    }
+
     public boolean isAppInstalled(String pkg) {
         try {
             return getService().isAppInstalled(pkg);

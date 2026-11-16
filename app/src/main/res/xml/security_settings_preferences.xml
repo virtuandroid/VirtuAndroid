@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <SwitchPreference
+        android:defaultValue="false"
+        android:key="security_settings_disable_seccomp"
+        android:persistent="true"
+        android:summary="@string/security_settings_disable_seccomp_summary"
+        android:title="@string/security_settings_disable_seccomp" />
+
+    <ListPreference
+        android:defaultValue="0"
+        android:entries="@array/fingerprint_names"
+        android:entryValues="@array/fingerprint_values"
+        android:key="advance_settings_fingerprint_action"
+        android:summary="@string/advance_settings_fingerprint_action_summary"
+        android:title="@string/advance_settings_fingerprint_action" />
+</PreferenceScreen>

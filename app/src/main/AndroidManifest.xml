@@ -66,6 +66,11 @@
             android:screenOrientation="portrait"
             android:theme="@style/VirtualXposedTheme" />
 
+        <activity
+            android:name=".settings.SecuritySettingsActivity"
+            android:label="@string/settings_security_text"
+            android:screenOrientation="portrait"
+            android:theme="@style/VirtualXposedTheme" />
 
         <activity
             android:name=".compose.ui.ModuleActivity"
