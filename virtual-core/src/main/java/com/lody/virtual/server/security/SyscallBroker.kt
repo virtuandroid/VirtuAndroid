@@ -1,6 +1,7 @@
 package com.lody.virtual.server.security
 
 import android.os.ParcelFileDescriptor
+import android.system.Os
 import androidx.tracing.trace
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentHashMapOf
@@ -48,21 +49,25 @@ object SyscallBroker {
     fun initServer(guestPid: Int, guestVuid: Int, sandbox: StorageSandbox) {
         val local = processBrokerTable.value[guestVuid] ?: return
 
-        // TODO stop thread on death
+        // TODO use both vuid and pid to prevent pid-reuse vulnerabilities
         thread {
-            // TODO implement correct g_cwd
-            // Use readlink("/proc/$guestPid/cwd")
+            val cwd = runCatching {
+                Os.readlink("/proc/$guestPid/cwd")
+            }.getOrElse {
+                "/"
+            }
+
             runCatching {
                 trace("SyscallBroker") {
-                    brokerServe(local.fd, guestPid, sandbox)
+                    brokerServe(local.fd, guestPid, sandbox, cwd)
                 }
             }
 
-            Timber.e("Broker server for guest pid: $guestPid exited!")
+            Timber.i("Broker server for guest pid: $guestPid exited!")
         }
     }
 
-    private external fun brokerServe(fd: Int, pid: Int, sandbox: StorageSandbox)
+    private external fun brokerServe(fd: Int, pid: Int, sandbox: StorageSandbox, cwd: String)
     private external fun brokerClientInstall(fd: Int): Boolean
     private external fun destroyBroker(pid: Int)
 }

@@ -2,7 +2,6 @@ package com.lody.virtual.server.security
 
 import android.annotation.SuppressLint
 import android.content.pm.ApplicationInfo
-import android.os.Build
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.os.VEnvironment
 import com.lody.virtual.os.VUserHandle
@@ -23,12 +22,11 @@ import java.io.File
  *
  */
 class StorageSandbox {
-    private val ruleList = MutableStateFlow(DirectoryRule())
-    private val redirectMap = MutableStateFlow(persistentHashMapOf<String, String>())
+    private val ruleList = MutableStateFlow(RuleList())
 
-    data class DirectoryRule(
-        val rules: Int = 0,
-        val directories: PersistentMap<String, DirectoryRule> = persistentHashMapOf()
+    data class RuleList(
+        val directories: PersistentMap<String, Int> = persistentHashMapOf(),
+        val redirectMap: PersistentMap<String, String> = persistentHashMapOf()
     )
 
     fun blocklistPaths(vararg paths: String) {
@@ -52,8 +50,10 @@ class StorageSandbox {
         val fromFixed = from.trimEnd('/') + "/"
         val toFixed = to.trimEnd('/') + "/"
 
-        redirectMap.update { map ->
-            map.putting(fromFixed, toFixed)
+        ruleList.update { rules ->
+            rules.copy(
+                redirectMap = rules.redirectMap.putting(fromFixed, toFixed)
+            )
         }
     }
 
@@ -123,37 +123,31 @@ class StorageSandbox {
     /** Does not normalize path or account for redirect paths.
      * @see [getRedirectPath]
      */
-    fun isPathAllowed(absolutePath: String): Boolean {
-        return isPathAllowed(absolutePath, ruleList.value)
+    fun isPathAllowed(absolutePath: String, permission: Int): Boolean {
+        return isPathAllowed(absolutePath, ruleList.value, permission)
 //            .also {
 //                Timber.d("Is path allowed: $absolutePath $it")
 //            }
     }
 
     fun getRedirectPath(path: String): String {
-        return getRedirectPath(path, redirectMap.value)
+        return getRedirectPath(path, ruleList.value.redirectMap)
     }
 
     companion object {
         // TODO actual per-directory permissions to support operations on parent dirs
-        const val ALLOW = 1
-        const val BLOCK = 1 shl 1
+        const val READ = 1
+        const val WRITE = 1 shl 1
+        const val READ_WRITE = READ or WRITE
         const val NOTIFY = 1 shl 2
+        const val BLOCK = 1 shl 3
 
-        fun isPathAllowed(
-            path: String,
-            directoryRule: DirectoryRule,
-        ): Boolean {
-            // Change isAllowed to change the default deny/allow
-            return isPathAllowed(path, directoryRule, false)
+        internal fun blocklist(path: String, ruleList: RuleList): RuleList {
+            return setFlag(BLOCK, path, ruleList)
         }
 
-        internal fun blocklist(path: String, directoryRule: DirectoryRule): DirectoryRule {
-            return setFlag(BLOCK, path, directoryRule)
-        }
-
-        internal fun whitelist(path: String, directoryRule: DirectoryRule): DirectoryRule {
-            return setFlag(ALLOW, path, directoryRule)
+        internal fun whitelist(path: String, ruleList: RuleList, permission: Int = READ_WRITE): RuleList {
+            return setFlag(permission, path, ruleList)
         }
 
         fun getRedirectPath(path: String, redirectMap: Map<String, String>): String {
@@ -163,7 +157,7 @@ class StorageSandbox {
                 // Get the largest match
                 redirectMap.keys.filter {
                     absolutePath.startsWith(it)
-                }.maxByOrNull { it.length }?.let { redirectKey ->
+                }.maxByOrNull { absolutePath.commonPrefixWith(it) }?.let { redirectKey ->
                     // If there is a match then get the replacement value
                     val replacement = redirectMap.getValue(redirectKey)
                     absolutePath.replace(redirectKey, replacement)
@@ -183,62 +177,28 @@ class StorageSandbox {
             return File(path).normalize().path.trimEnd('/') + suffix
         }
 
-        private fun isPathAllowed(
+        fun isPathAllowed(
             path: String?,
-            directoryRule: DirectoryRule,
-            isAllowed: Boolean
+            ruleList: RuleList,
+            permission: Int = READ_WRITE,
         ): Boolean {
-            val newIsAllowed = if (isAllowed) {
-                // If already allowed then wait until an explicit BLOCK is encountered
-                (directoryRule.rules and BLOCK) == 0
-            } else {
-                // If not allowed then wait until an explicit ALLOW is reached
-                (directoryRule.rules and (ALLOW or BLOCK)) == ALLOW
-            }
+            if (path.isNullOrBlank()) return false
+            val realPath = path.trimEnd('/') + "/"
+            val best = ruleList.directories.entries.filter { realPath.startsWith(it.key) }
+                .maxByOrNull { realPath.commonPrefixWith(it.key) } ?: return false
 
-            if (path == null) {
-                return newIsAllowed
-            }
-
-            val firstIndex = path.indexOf("/").takeIf { it != -1 }?.plus(1) ?: path.length
-            val parentPath = path.take(firstIndex)
-            val childPath =
-                path.takeLast(path.length - firstIndex).ifEmpty { null }?.trimEnd('/')?.plus('/')
-
-            val subDir = directoryRule.directories[parentPath]
-
-            if (subDir != null) {
-                return isPathAllowed(childPath, subDir, newIsAllowed)
-            }
-
-            return newIsAllowed
+            return (best.value and BLOCK == 0) && (best.value and permission == permission)
         }
 
-        fun setFlag(flag: Int, path: String, directoryRule: DirectoryRule): DirectoryRule {
-            val firstIndex = path.indexOf("/").takeIf { it != -1 }?.plus(1) ?: path.length
-            val parentPath = path.take(firstIndex)
-            val childPath =
-                path.takeLast(path.length - firstIndex).ifEmpty { null }?.trimEnd('/')?.plus('/')
-
-            if (childPath != null) {
-                val currentRule = directoryRule.directories[parentPath] ?: DirectoryRule()
-                return directoryRule.copy(
-                    directories = directoryRule.directories.putting(
-                        parentPath, setFlag(
-                            flag,
-                            childPath,
-                            currentRule
-                        )
-                    )
+        fun setFlag(flag: Int, path: String, ruleList: RuleList): RuleList {
+            val realPath = path.trimEnd('/') + "/"
+            val existingRule = ruleList.directories[realPath] ?: 0
+            return ruleList.copy(
+                directories = ruleList.directories.putting(
+                    realPath,
+                    flag or existingRule
                 )
-            } else {
-                val currentRule = directoryRule.directories[parentPath] ?: DirectoryRule()
-                return directoryRule.copy(
-                    directories = directoryRule.directories.putting(
-                        parentPath, currentRule.copy(rules = currentRule.rules or flag)
-                    )
-                )
-            }
+            )
         }
     }
 }

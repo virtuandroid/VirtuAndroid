@@ -5,22 +5,22 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-private typealias Op = (StorageSandbox.DirectoryRule) -> StorageSandbox.DirectoryRule
+private typealias Op = (StorageSandbox.RuleList) -> StorageSandbox.RuleList
 
 private fun allow(path: String): Op = { StorageSandbox.whitelist(path, it) }
 private fun block(path: String): Op = { StorageSandbox.blocklist(path, it) }
 
 /** Builds a fresh rule tree by applying [ops] in order. */
-private fun sandbox(vararg ops: Op): StorageSandbox.DirectoryRule =
-    ops.fold(StorageSandbox.DirectoryRule()) { rule, op -> op(rule) }
+private fun sandbox(vararg ops: Op): StorageSandbox.RuleList =
+    ops.fold(StorageSandbox.RuleList()) { rule, op -> op(rule) }
 
-private fun StorageSandbox.DirectoryRule.assertAllowed(vararg paths: String) =
+private fun StorageSandbox.RuleList.assertAllowed(vararg paths: String) =
     paths.forEach {
         val redirectPath = StorageSandbox.getRedirectPath(it, emptyMap())
         assertTrue("Expected ALLOWED: '$it'", StorageSandbox.isPathAllowed(redirectPath, this))
     }
 
-private fun StorageSandbox.DirectoryRule.assertDenied(vararg paths: String) =
+private fun StorageSandbox.RuleList.assertDenied(vararg paths: String) =
     paths.forEach {
         val redirectPath = StorageSandbox.getRedirectPath(it, emptyMap())
         assertFalse("Expected DENIED: '$it'", StorageSandbox.isPathAllowed(redirectPath, this))

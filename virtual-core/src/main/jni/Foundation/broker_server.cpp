@@ -69,6 +69,10 @@ struct ctx {
     int ret_fd;                         // fd to pass back to the client, or -1
 };
 
+// Must match StorageSandbox.kt
+const int READ = 1;
+const int WRITE = 1 << 1;
+
 /* ========================================================================== */
 /* Policy                                                                     */
 /* ========================================================================== */
@@ -85,7 +89,7 @@ static bool isPathAllowed(const char *path) {
         return false;
     }
 
-    jboolean allowed = env->CallBooleanMethod(g_policy.sandbox, g_policy.check_method, jpath);
+    jboolean allowed = env->CallBooleanMethod(g_policy.sandbox, g_policy.check_method, jpath, READ | WRITE);
     env->DeleteLocalRef(jpath);
 
     if (env->ExceptionCheck()) {
@@ -690,11 +694,9 @@ static void broker_serve(int sock, pid_t client_pid) {
 
     while (true) {
         pthread_mutex_lock(&g_servers_mutex);
-
-        if (!g_servers[client_pid].running) {
-            return;
-        }
+        bool running = g_servers[client_pid].running;
         pthread_mutex_unlock(&g_servers_mutex);
+        if (!running) return;
 
         // ---- receive one request (+ up to 2 fds) ----
         union {
@@ -773,9 +775,9 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_lody_virtual_server_security_SyscallBroker_brokerServe(JNIEnv *env, jobject thiz,
                                                                 jint fd, jint pid,
-                                                                jobject sandbox) {
+                                                                jobject sandbox, jstring cwd) {
     jclass cls = env->GetObjectClass(sandbox);
-    jmethodID check_method = env->GetMethodID(cls, "isPathAllowed", "(Ljava/lang/String;)Z");
+    jmethodID check_method = env->GetMethodID(cls, "isPathAllowed", "(Ljava/lang/String;I)Z");
     if (check_method == nullptr) {
         env->ExceptionClear();
         return;
@@ -787,6 +789,15 @@ Java_com_lody_virtual_server_security_SyscallBroker_brokerServe(JNIEnv *env, job
         env->ExceptionClear();
         return;
     }
+
+    const char *c_cwd = env->GetStringUTFChars(cwd, nullptr);
+    if (c_cwd == nullptr) return;
+    size_t len = strlen(c_cwd);
+    if (len > PATH_MAX) {
+        return;
+    }
+    memcpy(g_cwd, c_cwd, len + 1);
+    env->ReleaseStringUTFChars(cwd, c_cwd);
 
     g_policy.env = env;
     g_policy.sandbox = sandbox;
