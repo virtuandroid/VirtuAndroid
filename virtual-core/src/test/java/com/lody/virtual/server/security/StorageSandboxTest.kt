@@ -1,5 +1,6 @@
 package com.lody.virtual.server.security
 
+import com.lody.virtual.server.security.StorageSandbox.Companion.READ_WRITE
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -7,7 +8,7 @@ import org.junit.Test
 
 private typealias Op = (StorageSandbox.RuleList) -> StorageSandbox.RuleList
 
-private fun allow(path: String): Op = { StorageSandbox.whitelist(path, it) }
+private fun allow(path: String): Op = { StorageSandbox.setFlag(path, it, READ_WRITE) }
 private fun block(path: String): Op = { StorageSandbox.blocklist(path, it) }
 
 /** Builds a fresh rule tree by applying [ops] in order. */

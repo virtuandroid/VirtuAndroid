@@ -70,8 +70,8 @@ struct ctx {
 };
 
 // Must match StorageSandbox.kt
-const int READ = 1;
-const int WRITE = 1 << 1;
+constexpr int READ = 1;
+constexpr int WRITE = 1 << 1;
 
 /* ========================================================================== */
 /* Policy                                                                     */
@@ -79,17 +79,18 @@ const int WRITE = 1 << 1;
 
 // Asks the Kotlin side whether `path` (an absolute, fully resolved path) is allowed.
 // Fails closed: any JNI error means "not allowed".
-static bool isPathAllowed(const char *path) {
+static bool isPathAllowed(const char *path, int mode) {
     JNIEnv *env = g_policy.env;
+    if (!env || mode == 0) return false;
 
-    // TODO ensure UTF is valid
     jstring jpath = env->NewStringUTF(path);
-    if (jpath == nullptr) {             // OOM or exception pending
+    if (jpath == nullptr) {
         env->ExceptionClear();
         return false;
     }
 
-    jboolean allowed = env->CallBooleanMethod(g_policy.sandbox, g_policy.check_method, jpath, READ | WRITE);
+    jboolean allowed = env->CallBooleanMethod(g_policy.sandbox, g_policy.check_method,
+                                              jpath, (jint) mode);
     env->DeleteLocalRef(jpath);
 
     if (env->ExceptionCheck()) {
@@ -97,6 +98,24 @@ static bool isPathAllowed(const char *path) {
         return false;
     }
     return allowed == JNI_TRUE;
+}
+
+static int open_flags_to_mode(int flags) {
+    if (flags & O_PATH) return READ;
+    int mode = 0;
+    switch (flags & O_ACCMODE) {
+        case O_RDONLY:
+            mode = READ;
+            break;
+        case O_WRONLY:
+            mode = WRITE;
+            break;
+        case O_RDWR:
+            mode = READ | WRITE;
+            break;
+    }
+    if (flags & (O_CREAT | O_TRUNC | O_APPEND)) mode |= WRITE;
+    return mode;
 }
 
 static bool getRedirectPath(const char *path, char out[PATH_MAX]) {
@@ -206,7 +225,7 @@ static int abs_path(int dirfd, const char *p, char out[PATH_MAX]) {
 
 // Opens an O_PATH handle to the fully resolved target and checks the *real* path
 // against the policy. Use for operations that act on the target itself.
-static int open_follow(const char *abs, bool nofollow, int *out) {
+static int open_follow(const char *abs, bool nofollow, int mode, int *out) {
     int fd = open(abs, O_PATH | O_CLOEXEC | (nofollow ? O_NOFOLLOW : 0));
     if (fd < 0) return -errno;
 
@@ -214,8 +233,8 @@ static int open_follow(const char *abs, bool nofollow, int *out) {
     struct stat st{};
     int e = fd_path(fd, real);
     if (!e && fstat(fd, &st) < 0) e = -errno;
-    if (!e && S_ISLNK(st.st_mode)) e = -ELOOP;      // only possible with nofollow
-    if (!e && !isPathAllowed(real)) e = -EACCES;
+    if (!e && S_ISLNK(st.st_mode)) e = -ELOOP;
+    if (!e && !isPathAllowed(real, mode)) e = -EACCES;
 
     if (e) {
         close(fd);
@@ -228,7 +247,7 @@ static int open_follow(const char *abs, bool nofollow, int *out) {
 // Opens a checked handle to the *parent directory* and returns the validated leaf name.
 // Use for operations that act on the final component itself (mkdir, unlink, rename, ...).
 // The policy is checked on <real parent>/<leaf>.
-static int open_parent(const char *abs, int *pfd, char leaf[NAME_MAX + 1]) {
+static int open_parent(const char *abs, int mode, int *pfd, char leaf[NAME_MAX + 1]) {
     char dir[PATH_MAX];
     snprintf(dir, sizeof dir, "%s", abs);
 
@@ -252,7 +271,7 @@ static int open_parent(const char *abs, int *pfd, char leaf[NAME_MAX + 1]) {
     int e = fd_path(fd, real);
     if (!e) {
         snprintf(full, sizeof full, "%s%s%s", real, strcmp(real, "/") ? "/" : "", leaf);
-        if (!isPathAllowed(full)) e = -EACCES;
+        if (!isPathAllowed(full, mode)) e = -EACCES;
     }
 
     if (e) {
@@ -280,35 +299,33 @@ static bool is_allowed_file_type(mode_t m) {
 // a[0] = open flags, a[1] = mode. Returns the opened fd via c->ret_fd.
 static int64_t h_openat(struct ctx *c) {
     int flags = (int) c->h->a[0];
-    mode_t mode = (mode_t) c->h->a[1] & 0777;                           // no setuid/sticky bits
+    mode_t mode = (mode_t) c->h->a[1] & 0777;
 
-    if ((unsigned) flags & ~(unsigned) OPEN_OK_FLAGS) return -EPERM;    // no O_TMPFILE etc.
+    if ((unsigned) flags & ~(unsigned) OPEN_OK_FLAGS) return -EPERM;
     if ((flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
+
+    const int access = open_flags_to_mode(flags);
 
     char abs[PATH_MAX];
     TRY(abs_path(c->fd[0], c->path[0], abs));
     pid_t pid = syscall(SYS_getpid);
     ALOGD("Trying to open absolute path: %s on %d", abs, pid);
 
-    // Flags used for the real open: never block on open, never acquire a controlling tty.
     const int safe_flags = flags | O_CLOEXEC | O_NOCTTY | O_NONBLOCK;
 
     int fd;
     if (flags & O_CREAT) {
-        // Never create in /dev: the open itself would already have side effects.
         if (strncmp(abs, "/dev/", 5) == 0) return -EACCES;
 
         char leaf[NAME_MAX + 1];
         AUTOFD pfd = -1;
-        TRY(open_parent(abs, &pfd, leaf));
+        TRY(open_parent(abs, access, &pfd, leaf));   // access always includes WRITE here
         fd = openat(pfd, leaf, safe_flags | O_NOFOLLOW, mode);
         if (fd < 0) return -errno;
     } else {
-        // Vet the target through an O_PATH handle first (no side effects, even for devices),
-        // then re-open that exact inode so symlink/bind tricks can't swap it in between.
         AUTOFD pfd = -1;
         struct stat st{};
-        TRY(open_follow(abs, flags & O_NOFOLLOW, &pfd));
+        TRY(open_follow(abs, flags & O_NOFOLLOW, access, &pfd));
         if (fstat(pfd, &st) < 0) return -errno;
         if (!is_allowed_file_type(st.st_mode)) return -EACCES;
 
@@ -318,11 +335,11 @@ static int64_t h_openat(struct ctx *c) {
         if (fd < 0) return -errno;
     }
 
-    // Final check on what we actually opened (covers the O_CREAT path and any races).
+    // Final check on what we actually opened, with the same access.
     char real[PATH_MAX];
     struct stat st{};
     if (fd_path(fd, real) || fstat(fd, &st) < 0 ||
-        !is_allowed_file_type(st.st_mode) || !isPathAllowed(real)) {
+        !is_allowed_file_type(st.st_mode) || !isPathAllowed(real, access)) {
         close(fd);
         return -EACCES;
     }
@@ -368,10 +385,10 @@ static int64_t h_fstatat(struct ctx *c) {
 
     int64_t r;
     if (flags & AT_SYMLINK_NOFOLLOW) {          // lstat: act on the leaf itself
-        TRY(open_parent(abs, &fd, leaf));
+        TRY(open_parent(abs, READ, &fd, leaf));
         r = SC(syscall(NR_FSTATAT, fd, leaf, c->out, AT_SYMLINK_NOFOLLOW));
     } else {                                    // stat: act on the resolved target
-        TRY(open_follow(abs, false, &fd));
+        TRY(open_follow(abs, false, READ, &fd));
         r = SC(syscall(NR_FSTATAT, fd, "", c->out, AT_EMPTY_PATH));
     }
     if (r == 0) c->out_len = STAT_SZ;
@@ -383,7 +400,7 @@ static int64_t h_statfs(struct ctx *c) {
     char abs[PATH_MAX], proc[PROC_PATH_SIZE];
     AUTOFD fd = -1;
     TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_follow(abs, false, &fd));
+    TRY(open_follow(abs, false, READ, &fd));
     proc_path(fd, proc);
 
     int64_t r;
@@ -405,7 +422,7 @@ static int64_t h_truncate(struct ctx *c) {
     char abs[PATH_MAX], proc[PROC_PATH_SIZE];
     AUTOFD fd = -1;
     TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_follow(abs, false, &fd));
+    TRY(open_follow(abs, false, WRITE, &fd));
     proc_path(fd, proc);                        // path-based truncate via magic link
     return SC(truncate(proc, (off_t) c->h->a[0]));
 }
@@ -426,10 +443,10 @@ static int64_t h_fchownat(struct ctx *c) {
     TRY(abs_path(c->fd[0], c->path[0], abs));
 
     if (flags & AT_SYMLINK_NOFOLLOW) {
-        TRY(open_parent(abs, &fd, leaf));
+        TRY(open_parent(abs, WRITE, &fd, leaf));
         return SC(fchownat(fd, leaf, uid, gid, AT_SYMLINK_NOFOLLOW));
     }
-    TRY(open_follow(abs, false, &fd));
+    TRY(open_follow(abs, false, WRITE, &fd));
     proc_path(fd, proc);
     return SC(chown(proc, uid, gid));
 }
@@ -458,10 +475,10 @@ static int64_t h_utimensat(struct ctx *c) {
     TRY(abs_path(c->fd[0], c->path[0], abs));
 
     if (flags & AT_SYMLINK_NOFOLLOW) {
-        TRY(open_parent(abs, &fd, leaf));
+        TRY(open_parent(abs, WRITE, &fd, leaf));
         return SC(syscall(__NR_utimensat, fd, leaf, times, AT_SYMLINK_NOFOLLOW));
     }
-    TRY(open_follow(abs, false, &fd));
+    TRY(open_follow(abs, false, WRITE, &fd));
     proc_path(fd, proc);
     return SC(syscall(__NR_utimensat, AT_FDCWD, proc, times, 0));
 }
@@ -471,7 +488,7 @@ static int64_t h_readlinkat(struct ctx *c) {
     char abs[PATH_MAX], leaf[NAME_MAX + 1];
     AUTOFD pfd = -1;
     TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_parent(abs, &pfd, leaf));
+    TRY(open_parent(abs, READ, &pfd, leaf));
 
     ssize_t n = readlinkat(pfd, leaf, (char *) c->out, c->h->out_cap);
     if (n < 0) return -errno;
@@ -488,7 +505,7 @@ static int64_t h_mkdirat(struct ctx *c) {
     char abs[PATH_MAX], leaf[NAME_MAX + 1];
     AUTOFD pfd = -1;
     TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_parent(abs, &pfd, leaf));
+    TRY(open_parent(abs, WRITE, &pfd, leaf));
     return SC(mkdirat(pfd, leaf, (mode_t) c->h->a[0] & 0777));
 }
 
@@ -501,7 +518,7 @@ static int64_t h_mknodat(struct ctx *c) {
     char abs[PATH_MAX], leaf[NAME_MAX + 1];
     AUTOFD pfd = -1;
     TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_parent(abs, &pfd, leaf));
+    TRY(open_parent(abs, WRITE, &pfd, leaf));
     return SC(mknodat(pfd, leaf, type | (mode & 0777), 0));
 }
 
@@ -513,7 +530,7 @@ static int64_t h_unlinkat(struct ctx *c) {
     char abs[PATH_MAX], leaf[NAME_MAX + 1];
     AUTOFD pfd = -1;
     TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_parent(abs, &pfd, leaf));
+    TRY(open_parent(abs, WRITE, &pfd, leaf));
     return SC(unlinkat(pfd, leaf, flags));
 }
 
@@ -523,7 +540,7 @@ static int64_t h_symlinkat(struct ctx *c) {
     char abs[PATH_MAX], leaf[NAME_MAX + 1];
     AUTOFD pfd = -1;
     TRY(abs_path(c->fd[1], c->path[1], abs));
-    TRY(open_parent(abs, &pfd, leaf));
+    TRY(open_parent(abs, WRITE, &pfd, leaf));
     // The target is just text. That is safe because the broker re-resolves and
     // policy-checks every path it ever follows.
     return SC(symlinkat(c->path[0], pfd, leaf));
@@ -540,14 +557,14 @@ static int64_t h_linkat(struct ctx *c) {
     TRY(abs_path(c->fd[0], c->path[0], src));
     TRY(abs_path(c->fd[1], c->path[1], dst));
 
-    TRY(open_parent(dst, &dst_dir, dst_leaf));
+    TRY(open_parent(dst, WRITE, &dst_dir, dst_leaf));
 
     if (flags & AT_SYMLINK_FOLLOW) {
-        TRY(open_follow(src, false, &src_fd));
+        TRY(open_follow(src, false, READ | WRITE, &src_fd));
         proc_path(src_fd, proc);
         return SC(linkat(AT_FDCWD, proc, dst_dir, dst_leaf, AT_SYMLINK_FOLLOW));
     }
-    TRY(open_parent(src, &src_dir, src_leaf));
+    TRY(open_parent(src, READ | WRITE, &src_dir, src_leaf));
     return SC(linkat(src_dir, src_leaf, dst_dir, dst_leaf, 0));
 }
 
@@ -559,8 +576,8 @@ static int64_t h_renameat(struct ctx *c) {
     AUTOFD from_dir = -1, to_dir = -1;
     TRY(abs_path(c->fd[0], c->path[0], from));
     TRY(abs_path(c->fd[1], c->path[1], to));
-    TRY(open_parent(from, &from_dir, from_leaf));
-    TRY(open_parent(to, &to_dir, to_leaf));
+    TRY(open_parent(from, WRITE, &from_dir, from_leaf));
+    TRY(open_parent(to, WRITE, &to_dir, to_leaf));
     return SC(syscall(__NR_renameat2, from_dir, from_leaf, to_dir, to_leaf,
                       (unsigned) c->h->a[0]));
 }
@@ -575,7 +592,7 @@ static int64_t h_chdir(struct ctx *c) {
     AUTOFD fd = -1;
     struct stat st{};
     TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_follow(abs, false, &fd));
+    TRY(open_follow(abs, false, READ, &fd));
     if (fstat(fd, &st) < 0) return -errno;
     if (!S_ISDIR(st.st_mode)) return -ENOTDIR;
     TRY(fd_path(fd, real));
@@ -777,7 +794,7 @@ Java_com_lody_virtual_server_security_SyscallBroker_brokerServe(JNIEnv *env, job
                                                                 jint fd, jint pid,
                                                                 jobject sandbox, jstring cwd) {
     jclass cls = env->GetObjectClass(sandbox);
-    jmethodID check_method = env->GetMethodID(cls, "isPathAllowed", "(Ljava/lang/String;I)Z");
+    jmethodID check_method = env->GetMethodID(cls, "isFlagAllowed", "(Ljava/lang/String;I)Z");
     if (check_method == nullptr) {
         env->ExceptionClear();
         return;

@@ -37,11 +37,12 @@ class StorageSandbox {
         }
     }
 
-    fun whitelistPaths(vararg paths: String) {
+    fun whitelistPaths(vararg paths: String, readOnly: Boolean = false) {
+        val flags = if (readOnly) READ else READ_WRITE
         ruleList.update { rule ->
             paths.fold(rule) { current, path ->
                 Timber.i("Whitelist path: $path")
-                whitelist(path, current)
+                setFlag(path, current, flags)
             }
         }
     }
@@ -108,7 +109,7 @@ class StorageSandbox {
         whitelistPaths("/data/data/$hostPkg/virtual/data/user/$userId/${info.packageName}")
 
         // TODO Maybe make a runtime copy and redirect?
-        whitelistPaths("/data/data/$hostPkg/files/modules.json")
+        whitelistPaths("/data/data/$hostPkg/files/modules.json", readOnly = true)
 
         // Read the base apk of VirtualXposed
         whitelistPaths("/data/app")
@@ -123,8 +124,8 @@ class StorageSandbox {
     /** Does not normalize path or account for redirect paths.
      * @see [getRedirectPath]
      */
-    fun isPathAllowed(absolutePath: String, permission: Int): Boolean {
-        return isPathAllowed(absolutePath, ruleList.value, permission)
+    fun isFlagAllowed(absolutePath: String, permission: Int): Boolean {
+        return isFlagAllowed(absolutePath, ruleList.value, permission)
 //            .also {
 //                Timber.d("Is path allowed: $absolutePath $it")
 //            }
@@ -146,7 +147,11 @@ class StorageSandbox {
             return setFlag(BLOCK, path, ruleList)
         }
 
-        internal fun whitelist(path: String, ruleList: RuleList, permission: Int = READ_WRITE): RuleList {
+        internal fun setFlag(
+            path: String,
+            ruleList: RuleList,
+            permission: Int
+        ): RuleList {
             return setFlag(permission, path, ruleList)
         }
 
@@ -180,14 +185,21 @@ class StorageSandbox {
         fun isPathAllowed(
             path: String?,
             ruleList: RuleList,
-            permission: Int = READ_WRITE,
+        ): Boolean {
+            return isFlagAllowed(path, ruleList, READ_WRITE)
+        }
+
+        fun isFlagAllowed(
+            path: String?,
+            ruleList: RuleList,
+            flag: Int,
         ): Boolean {
             if (path.isNullOrBlank()) return false
             val realPath = path.trimEnd('/') + "/"
             val best = ruleList.directories.entries.filter { realPath.startsWith(it.key) }
                 .maxByOrNull { realPath.commonPrefixWith(it.key) } ?: return false
 
-            return (best.value and BLOCK == 0) && (best.value and permission == permission)
+            return (best.value and BLOCK == 0) && (best.value and flag == flag)
         }
 
         fun setFlag(flag: Int, path: String, ruleList: RuleList): RuleList {
