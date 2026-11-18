@@ -43,6 +43,7 @@ import com.lody.virtual.client.env.Constants.EXTRA_USER_HANDLE
 import com.lody.virtual.client.env.SpecialComponentList
 import com.lody.virtual.client.ipc.ProviderCall
 import com.lody.virtual.client.ipc.VNotificationManager
+import com.lody.virtual.client.stub.StubCP.Companion.VA_CLOSE_FD
 import com.lody.virtual.client.stub.StubCP.Companion.VA_INIT_PROCESS_METHOD
 import com.lody.virtual.client.stub.VASettings
 import com.lody.virtual.helper.compat.ActivityManagerCompat
@@ -943,12 +944,30 @@ class VActivityManagerService : IActivityManager.Stub() {
             return null
         }
         val pid = res.getInt(BUNDLE_PID)
-        val notifFd = res.getParcelable<ParcelFileDescriptor>(BUNDLE_SYSCALL_NOTIF_FD)
-        if (seccompEnabled && notifFd != null) {
-            val sandbox = StorageSandbox().apply {
-                initSandboxForPid(info, pid)
+        if (seccompEnabled) {
+            val notifFd = res.getParcelable<ParcelFileDescriptor>(BUNDLE_SYSCALL_NOTIF_FD)
+            // If we get not FD to listen on something went wrong in the seccomp setup,
+            // and we must kill the child process
+            if (notifFd == null) {
+                Timber.e("No notifFd received, killing child process!")
+                Process.killProcess(pid)
+            } else {
+                val sandbox = StorageSandbox().apply {
+                    initSandboxForPid(info, pid)
+                }
+
+                SyscallBroker.initServer(notifFd.detachFd(), pid, sandbox)
+
+                // Must be called after server init, otherwise seccomp fails because
+                // there are no listeners, leading to an infinitely loading child process
+                ProviderCall.call(
+                    VASettings.getStubAuthority(vpid),
+                    VA_CLOSE_FD,
+                    null,
+                    null
+                )
             }
-            SyscallBroker.initServer(notifFd.detachFd(),pid, sandbox)
+
         }
 
         val clientBinder = BundleCompat.getBinder(res, BUNDLE_CLIENT_BINDER)

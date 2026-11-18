@@ -17,7 +17,6 @@ object SyscallBroker {
 
     @JvmStatic
     fun initServer(listenFd: Int, guestPid: Int, sandbox: StorageSandbox) {
-        // TODO use both vuid and pid to prevent pid-reuse vulnerabilities
         thread {
             val cwd = runCatching {
                 Os.readlink("/proc/$guestPid/cwd")
@@ -33,9 +32,19 @@ object SyscallBroker {
 
             Timber.i("Broker server for guest pid: $guestPid exited!")
         }
+
+        // Do not return until its started
+        while (!serverIsRunning(guestPid)) {
+            Thread.sleep(10)
+        }
+        // Necessary extra time to ensure that the FD is set up
+        // after the flag is set. This is somewhat unavoidable since
+        // we want to make the FD listening blocking in order to avoid busy waiting
+        Thread.sleep(10)
     }
 
     private external fun serverServe(fd: Int, pid: Int, sandbox: StorageSandbox, cwd: String)
     private external fun serverDestroy(pid: Int)
+    private external fun serverIsRunning(pid: Int): Boolean
     private external fun clientInstall(): Int
 }

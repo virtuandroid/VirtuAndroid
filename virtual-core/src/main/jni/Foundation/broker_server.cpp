@@ -50,7 +50,7 @@ struct JavaPolicy {
 
 // Thread-safe container for multiple server instances
 pthread_mutex_t g_servers_mutex = PTHREAD_MUTEX_INITIALIZER;
-std::map<pid_t, JavaPolicy> g_servers;
+std::map<pid_t, JavaPolicy*> g_servers;
 
 static thread_local JavaPolicy g_policy;
 static thread_local char g_cwd[PATH_MAX] = "/";
@@ -59,10 +59,6 @@ static thread_local pid_t g_client_pid;
 // Must match StorageSandbox.kt
 constexpr int READ = 1;
 constexpr int WRITE = 1 << 1;
-
-static int sys_seccomp(unsigned op, unsigned flags, void *args) {
-    return static_cast<int>(syscall(__NR_seccomp, op, flags, args));
-}
 
 #ifndef SECCOMP_IOCTL_NOTIF_ADDFD
 struct seccomp_notif_addfd {
@@ -316,10 +312,11 @@ static int resolve_path(Ctx &c, int dirfd, const char *raw, bool follow, std::st
 // otherwise the path must be allowed for the requested access mode.
 static int authorize(const std::string &resolved, int mode, PathResult &r) {
     char redirected[PATH_MAX];
-    char* realPath = const_cast<char *>(resolved.c_str());
+    char *currentPath = const_cast<char *>(resolved.c_str());
 
-    if (getRedirectPath(resolved.c_str(), redirected)) {
-        realPath = redirected;
+    if (getRedirectPath(currentPath, redirected)) {
+        r.redirected = true;
+        currentPath = redirected;
     }
 
     if (!isPathAllowed(resolved.c_str(), mode)) return EACCES;
@@ -352,6 +349,7 @@ static int prepare_path(Ctx &c, int dirfd, int path_arg, bool follow, int mode,
     return resolve_and_authorize(c, dirfd, raw, follow, mode, r);
 }
 
+// TODO Review all FAIL_OR_PASS
 #define FAIL_OR_PASS(e)  do { if ((e) == PASSTHRU) return c.cont(); if (e) return c.fail(e); } while (0)
 #define FAIL_ON(e)       do { if (e) return c.fail(e); } while (0)
 
@@ -359,12 +357,17 @@ static int prepare_path(Ctx &c, int dirfd, int path_arg, bool follow, int mode,
 /* Handlers                                                                   */
 /* ========================================================================== */
 static void do_open(Ctx &c, int dirfd, int path_arg, int flags_arg, int mode_arg) {
+    // TODO this cannot load /linkerconfig, make cont bypass whenever a process is forked, but not after
     int flags = (int) c.arg(flags_arg);
     auto mode = (mode_t) c.arg(mode_arg);
     int acc = flags & O_ACCMODE;
     int need = (acc == O_WRONLY) ? WRITE : (acc == O_RDWR) ? (READ | WRITE) : READ;
-    if (flags & (O_CREAT | O_TRUNC | O_APPEND)) need |= WRITE;
-    if (flags & O_PATH) need = READ;
+    if (flags & (O_CREAT | O_TRUNC | O_APPEND)) {
+        need |= WRITE;
+    }
+    if (flags & O_PATH) {
+        need = READ;
+    }
 
     PathResult p;
     int e = prepare_path(c, dirfd, path_arg, !(flags & O_NOFOLLOW), need, false, p);
@@ -391,7 +394,9 @@ static void do_open(Ctx &c, int dirfd, int path_arg, int flags_arg, int mode_arg
 static void h_openat(Ctx &c) { do_open(c, (int) c.arg(0), 1, 2, 3); }
 
 #ifdef __NR_open
-static void h_open(Ctx &c)   { do_open(c, AT_FDCWD, 0, 1, 2); }
+
+static void h_open(Ctx &c) { do_open(c, AT_FDCWD, 0, 1, 2); }
+
 #endif
 
 // fchownat(dirfd, path, uid, gid, flags)
@@ -585,7 +590,7 @@ static void h_chdir(Ctx &c) { patch_and_continue(c, 0, READ); }
 static void h_execve(Ctx &c) { patch_and_continue(c, 0, READ); }
 
 // connect(fd, addr, addrlen): only filesystem AF_UNIX sockets are path-checked.
-static void h_connect(Ctx &c) {
+static void h_connect(Ctx &c) { // TODO FIX
     const size_t off = offsetof(sockaddr_un, sun_path);
     uint64_t addr = untag(c.arg(1));
     auto len = (size_t) c.arg(2);
@@ -610,15 +615,24 @@ static void h_connect(Ctx &c) {
     c.cont();
 }
 
-// kill(pid, sig). PLACEHOLDER policy: protect the host/server process. Replace with a Kotlin
-// callback if you need "only signal processes in this virtual app".
-static bool isKillAllowed(pid_t target, int /*sig*/) {
-    return !(target == -1 || target == 1 || target == getpid());
+static bool isKillAllowed(pid_t target) {
+    // TODO account for process children
+    return target == g_client_pid;
 }
 
 static void h_kill(Ctx &c) {
-    if (!isKillAllowed((pid_t) c.arg(0), (int) c.arg(1))) return c.fail(EPERM);
-    c.cont();
+    auto target = (pid_t) c.arg(0);
+    if (!isKillAllowed(target)) {
+        return c.fail(EPERM);
+    }
+    auto signal = (int) c.arg(1);
+    auto response = kill(target, signal);
+
+    if (response == -1) {
+        c.fail(errno);
+    } else {
+        c.ok(response);
+    }
 }
 
 /* ========================================================================== */
@@ -628,7 +642,7 @@ static const std::unordered_map<int, Handler> &handler_table() {
     static const std::unordered_map<int, Handler> table = [] {
         std::unordered_map<int, Handler> m;
 #ifdef __NR_open
-        m[__NR_open]       = h_open;        // x86_64 only (also covers __open_2)
+        m[__NR_open] = h_open;        // x86_64 only (also covers __open_2)
 #endif
         m[__NR_openat] = h_openat;      // also covers __openat_2
         m[__NR_fchownat] = h_fchownat;
@@ -669,13 +683,17 @@ static void broker_serve(int fd, pid_t client_pid) {
     g_client_pid = client_pid;
 
     seccomp_notif_sizes sizes{};
-    if (sys_seccomp(SECCOMP_GET_NOTIF_SIZES, 0, &sizes) != 0) {
+    if (static_cast<int>(syscall(__NR_seccomp, SECCOMP_GET_NOTIF_SIZES, 0, &sizes)) != 0) {
         perror("SECCOMP_GET_NOTIF_SIZES");
         return;
     }
     auto *req = static_cast<seccomp_notif *>(calloc(1, sizes.seccomp_notif));
     auto *resp = static_cast<seccomp_notif_resp *>(calloc(1, sizes.seccomp_notif_resp));
     const auto &table = handler_table();
+
+    pthread_mutex_lock(&g_servers_mutex);
+    g_policy.running = true;
+    pthread_mutex_unlock(&g_servers_mutex);
 
     while (true) {
         memset(req, 0, sizes.seccomp_notif);
@@ -697,8 +715,11 @@ static void broker_serve(int fd, pid_t client_pid) {
                         EPERM);           // fail closed: compat-ABI syscall numbers mean something else
             } else {
                 auto it = table.find(req->data.nr);
-                if (it == table.end()) ctx.cont();      // unfiltered => CONTINUE
-                else it->second(ctx);
+                if (it == table.end()) {
+                    ctx.cont();      // unfiltered => CONTINUE
+                } else {
+                    it->second(ctx);
+                }
             }
         }   // Ctx closes /proc/<tid>/mem here
 
@@ -748,13 +769,14 @@ Java_com_lody_virtual_server_security_SyscallBroker_serverServe(JNIEnv *env, job
     g_policy.redirect_method = redirect_method;
 
     pthread_mutex_lock(&g_servers_mutex);
-    g_servers[pid] = g_policy;
+    g_servers[pid] = &g_policy;
     pthread_mutex_unlock(&g_servers_mutex);
 
     ALOGD("Starting the syscall broker for %d on fd %d", pid, fd);
     broker_serve(fd, pid);
     g_policy = {};
 }
+
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_lody_virtual_server_security_SyscallBroker_serverDestroy(JNIEnv *env, jobject thiz,
@@ -764,8 +786,25 @@ Java_com_lody_virtual_server_security_SyscallBroker_serverDestroy(JNIEnv *env, j
 
     if (it != g_servers.end()) {
         // The server exists, safe to update
-        it->second.running = false;
+        it->second->running = false; // TODO working exit
     }
 
     pthread_mutex_unlock(&g_servers_mutex);
+}
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_lody_virtual_server_security_SyscallBroker_serverIsRunning(JNIEnv *env, jobject thiz,
+                                                                    jint pid) {
+    bool isRunning = false;
+
+    pthread_mutex_lock(&g_servers_mutex);
+    auto it = g_servers.find(pid);
+
+    if (it != g_servers.end()) {
+        isRunning = it->second->running;
+    }
+
+    pthread_mutex_unlock(&g_servers_mutex);
+
+    return isRunning;
 }

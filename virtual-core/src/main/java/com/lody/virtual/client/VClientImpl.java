@@ -49,6 +49,7 @@ import com.lody.virtual.client.ipc.VActivityManager;
 import com.lody.virtual.client.ipc.VDeviceManager;
 import com.lody.virtual.client.ipc.VPackageManager;
 import com.lody.virtual.client.ipc.VirtualStorageManager;
+import com.lody.virtual.client.stub.StubCP;
 import com.lody.virtual.client.stub.VASettings;
 import com.lody.virtual.helper.compat.BuildCompat;
 import com.lody.virtual.helper.compat.StorageManagerCompat;
@@ -253,6 +254,8 @@ public final class VClientImpl extends IVClient.Stub {
     }
 
     private void bindApplicationNoCheck(String packageName, String processName, ConditionVariable lock) {
+        // Ensure guest code cannot use the seccomp FD
+        StubCP.assertSeccompFdClosed();
         VDeviceInfo deviceInfo = getDeviceInfo();
         if (processName == null) {
             processName = packageName;

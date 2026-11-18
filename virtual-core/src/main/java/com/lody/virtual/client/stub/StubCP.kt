@@ -17,11 +17,14 @@ import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.helper.compat.BundleCompat
 import com.lody.virtual.server.security.SecurityUtils
 import com.lody.virtual.server.security.SyscallBroker
+import timber.log.Timber
+import kotlin.system.exitProcess
 
 /**
  * @author Lody
  */
 open class StubCP : ContentProvider() {
+
     override fun onCreate(): Boolean {
         return true
     }
@@ -36,10 +39,23 @@ open class StubCP : ContentProvider() {
         return null
     }
 
+    private fun closeFd() {
+        runCatching {
+            seccompFd?.close()
+            assertSeccompFdClosed()
+            seccompFd = null
+        }.onFailure {
+            Timber.e("Failed to close seccomp FD, killing process.")
+            exitProcess(1)
+        }
+    }
+
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
         SecurityUtils.assertSystemCaller()
         if (method == VA_INIT_PROCESS_METHOD) {
             return initProcess(extras)
+        } else if (method == VA_CLOSE_FD) {
+            closeFd()
         }
         return null
     }
@@ -53,14 +69,17 @@ open class StubCP : ContentProvider() {
         val vuid = extras?.getInt(BUNDLE_VUID) ?: return null
 
         val seccompEnabled = VirtualCore.get().isSeccompEnabled
-        var notifFd: ParcelFileDescriptor? = null
         if (seccompEnabled) {
             val initResult = SyscallBroker.initClient()
             if (initResult < 1) {
                 throw IllegalStateException("SECCOMP Initialization failed!")
             }
-            // TODO ensure that this is closed on child end, otherwise it can continue itself
-            notifFd = ParcelFileDescriptor.fromFd(initResult)
+
+            if (seccompFd != null)  {
+                throw IllegalStateException("SECCOMP should never be created twice!")
+            }
+
+            seccompFd = ParcelFileDescriptor.adoptFd(initResult)
         }
 
         val client = VClientImpl.get()
@@ -69,7 +88,7 @@ open class StubCP : ContentProvider() {
         BundleCompat.putBinder(res, BUNDLE_CLIENT_BINDER, client.asBinder())
         res.putInt(BUNDLE_PID, Process.myPid())
 
-        notifFd?.let { fd ->
+        seccompFd?.let { fd ->
             res.putParcelable(BUNDLE_SYSCALL_NOTIF_FD, fd)
         }
         return res
@@ -299,5 +318,14 @@ open class StubCP : ContentProvider() {
 
     companion object {
         const val VA_INIT_PROCESS_METHOD: String = "_VA_|_init_process_"
+        const val VA_CLOSE_FD: String = "_VA_|_close_fd_"
+        private var seccompFd: ParcelFileDescriptor? = null
+
+        @JvmStatic
+        fun assertSeccompFdClosed() {
+            if (seccompFd?.fileDescriptor?.valid() == true) {
+                throw IllegalStateException("Seccomp FD is not closed!")
+            }
+        }
     }
 }
