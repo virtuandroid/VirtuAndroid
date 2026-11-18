@@ -10,7 +10,7 @@ import android.os.Process
 import com.lody.virtual.IntentHelper.BUNDLE_BINDER
 import com.lody.virtual.IntentHelper.BUNDLE_CLIENT_BINDER
 import com.lody.virtual.IntentHelper.BUNDLE_PID
-import com.lody.virtual.IntentHelper.BUNDLE_SYSCALL_BROKER_FD
+import com.lody.virtual.IntentHelper.BUNDLE_SYSCALL_NOTIF_FD
 import com.lody.virtual.IntentHelper.BUNDLE_VUID
 import com.lody.virtual.client.VClientImpl
 import com.lody.virtual.client.core.VirtualCore
@@ -33,7 +33,7 @@ open class StubCP : ContentProvider() {
         selectionArgs: Array<out String?>?,
         sortOrder: String?
     ): Cursor? {
-         return null
+        return null
     }
 
     override fun call(method: String, arg: String?, extras: Bundle?): Bundle? {
@@ -52,14 +52,26 @@ open class StubCP : ContentProvider() {
         val token = BundleCompat.getBinder(extras, BUNDLE_BINDER)
         val vuid = extras?.getInt(BUNDLE_VUID) ?: return null
 
-        val childBrokerDescriptor = extras.getParcelable<ParcelFileDescriptor>(BUNDLE_SYSCALL_BROKER_FD)
-        SyscallBroker.childBrokerDescriptor = childBrokerDescriptor
+        val seccompEnabled = VirtualCore.get().isSeccompEnabled
+        var notifFd: ParcelFileDescriptor? = null
+        if (seccompEnabled) {
+            val initResult = SyscallBroker.initClient()
+            if (initResult < 1) {
+                throw IllegalStateException("SECCOMP Initialization failed!")
+            }
+            // TODO ensure that this is closed on child end, otherwise it can continue itself
+            notifFd = ParcelFileDescriptor.fromFd(initResult)
+        }
 
         val client = VClientImpl.get()
         client.initProcess(token, vuid)
         val res = Bundle()
         BundleCompat.putBinder(res, BUNDLE_CLIENT_BINDER, client.asBinder())
         res.putInt(BUNDLE_PID, Process.myPid())
+
+        notifFd?.let { fd ->
+            res.putParcelable(BUNDLE_SYSCALL_NOTIF_FD, fd)
+        }
         return res
     }
 

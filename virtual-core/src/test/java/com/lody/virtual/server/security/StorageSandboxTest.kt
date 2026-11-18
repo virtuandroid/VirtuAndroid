@@ -72,17 +72,26 @@ class StorageSandboxTest {
     }
 
     @Test
-    fun fileWhitelist_childrenAllowed() {
-        sandbox(allow("/home/test/example")).assertAllowed(
-            "/home/test/example/test",
-            "/home/test/example/a/b/c"
+    fun fileWhitelist_parentAllowed() {
+        val rules = sandbox(allow("/data/data/io.va.exposed64"))
+        rules.assertAllowed(
+            "/data",
+            "/data/",
+            "/data/data",
+        )
+        rules.assertDenied(
+            "/root",
+            "/root/",
+            "/data/app",
+            "/data/data/com.example.app"
         )
     }
 
     @Test
-    fun fileWhitelist_parentsDenied() {
-        sandbox(allow("/home/test/example")).assertDenied(
-            "/home/test/", "/home/test", "/home/", "/"
+    fun fileWhitelist_childrenAllowed() {
+        sandbox(allow("/home/test/example")).assertAllowed(
+            "/home/test/example/test",
+            "/home/test/example/a/b/c"
         )
     }
 
@@ -125,11 +134,6 @@ class StorageSandboxTest {
             "/home/test/sub/file",
             "/home/test/a/b/c/d/e/file"
         )
-    }
-
-    @Test
-    fun dirWhitelist_parentsDenied() {
-        sandbox(allow("/home/test/")).assertDenied("/home/", "/", "")
     }
 
     @Test
@@ -183,8 +187,8 @@ class StorageSandboxTest {
     fun deepest_blocklistedSubdirectoryInsideWhitelistedDirectory() {
         val rules = sandbox(allow("/home/"), block("/home/test/example/"))
 
-        rules.assertAllowed("/home/", "/home/test/", "/home/test/other", "/home/other/file")
-        rules.assertDenied("/home/test/example/", "/home/test/example/test", "/", "")
+        rules.assertAllowed("/home/", "/home/test/", "/home/test/other", "/home/other/file", "/")
+        rules.assertDenied("/home/test/example/", "/home/test/example/test", "")
     }
 
     @Test
@@ -248,7 +252,7 @@ class StorageSandboxTest {
         val rules = sandbox(allow("/a/"), allow("/b/"), allow("/c/file"))
 
         rules.assertAllowed("/a/x", "/b/y/z", "/c/file")
-        rules.assertDenied("/c/other", "/d/x", "/")
+        rules.assertDenied("/c/other", "/d/x")
     }
 
     @Test

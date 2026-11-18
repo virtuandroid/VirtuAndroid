@@ -3,6 +3,7 @@ package com.lody.virtual.server.security
 import android.annotation.SuppressLint
 import android.content.pm.ApplicationInfo
 import com.lody.virtual.client.core.VirtualCore
+import com.lody.virtual.client.ipc.VDeviceManager
 import com.lody.virtual.os.VEnvironment
 import com.lody.virtual.os.VUserHandle
 import kotlinx.collections.immutable.PersistentMap
@@ -63,12 +64,13 @@ class StorageSandbox {
         val userId = VUserHandle.getUserId(info.uid)
         val hostPkg = VirtualCore.get().hostPkg
 
-        // Use this if something fails to figure out if it's the storage sandbox or something else.
-//         whitelistPaths("/")
-
         // Only allow the app to inspect its own proc
         whitelistPaths("/proc/$pid")
         redirectDirectory("/proc/self", "/proc/$pid")
+        whitelistPaths("/proc/sys")
+        whitelistPaths("/proc") // TODO implement checks for child processes
+        whitelistPaths("/data/data/$hostPkg/.agent-logs") // TODO This is called sometimes ???
+
         // TODO implement /proc/thread-self
 
         // Important system directories required for runtime
@@ -81,43 +83,43 @@ class StorageSandbox {
             "/sys",
             "/data/misc",
             "/system_ext",
+            "/odm", // For exec
+            "/linkerconfig" // For exec
         )
 
         whitelistPaths("/storage") // External storage, should be restricted in the future
-        whitelistPaths("/data/data/$hostPkg/virtual/data/app/system/permissions.xml") // TODO Move to server writer
+        whitelistPaths(
+            "/data/data/$hostPkg/virtual/data/app/system/permissions.xml", readOnly = true
+        )
 
         // Redirect user data access to VirtualXposed internal file system
         whitelistPaths(info.dataDir)
         redirectDirectory("/data/data/${info.packageName}", info.dataDir)
-        redirectDirectory("/data/user/0/${info.packageName}", info.dataDir)
+        redirectDirectory("/data/user/$userId/${info.packageName}", info.dataDir)
 
-        // /data/data/$hostPkg/virtual/data/user/0/
-        // /data/data/io.va.exposed64/virtual/data/user/0/com.virtualxposed.guestattacker false
         // Redirect native library access
         val libPath = VEnvironment.getAppLibDirectory(info.packageName).absolutePath
 
         val userLibPath = File(
-            VEnvironment.getUserSystemDirectory(userId),
-            info.packageName + "/lib"
+            VEnvironment.getUserSystemDirectory(userId), info.packageName + "/lib"
         ).absolutePath
 
         redirectDirectory(userLibPath, libPath)
         redirectDirectory("/data/data/${info.packageName}/lib/", libPath)
-        redirectDirectory("/data/user/0/${info.packageName}/lib/", libPath)
-
+        redirectDirectory("/data/user/$userId/${info.packageName}/lib/", libPath)
         whitelistPaths("/data/data/$hostPkg/virtual/data/app/${info.packageName}")
         whitelistPaths("/data/data/$hostPkg/virtual/data/user/$userId/${info.packageName}")
-
-        // TODO Maybe make a runtime copy and redirect?
         whitelistPaths("/data/data/$hostPkg/files/modules.json", readOnly = true)
+        // TODO redirect /data/misc/profiles/cur/0/com.virtualxposed.guestattacker/primary.prof
 
         // Read the base apk of VirtualXposed
         whitelistPaths("/data/app")
 
-//        val wifiMacAddressFile = deviceInfo.getWifiFile(userId).getPath();
-//        NativeEngine.redirectDirectory("/sys/class/net/wlan0/address", wifiMacAddressFile);
-//        NativeEngine.redirectDirectory("/sys/class/net/eth0/address", wifiMacAddressFile);
-//        NativeEngine.redirectDirectory("/sys/class/net/wifi/address", wifiMacAddressFile);
+        val deviceInfo = VDeviceManager.get().getDeviceInfo(userId)
+        val wifiMacAddressFile = deviceInfo.getWifiFile(userId).path
+        redirectDirectory("/sys/class/net/wlan0/address", wifiMacAddressFile)
+        redirectDirectory("/sys/class/net/eth0/address", wifiMacAddressFile)
+        redirectDirectory("/sys/class/net/wifi/address", wifiMacAddressFile)
     }
 
 
@@ -127,7 +129,7 @@ class StorageSandbox {
     fun isFlagAllowed(absolutePath: String, permission: Int): Boolean {
         return isFlagAllowed(absolutePath, ruleList.value, permission)
 //            .also {
-//                Timber.d("Is path allowed: $absolutePath $it")
+//                Timber.d("Is path allowed $it on $absolutePath with flags $permission")
 //            }
     }
 
@@ -148,9 +150,7 @@ class StorageSandbox {
         }
 
         internal fun setFlag(
-            path: String,
-            ruleList: RuleList,
-            permission: Int
+            path: String, ruleList: RuleList, permission: Int
         ): RuleList {
             return setFlag(permission, path, ruleList)
         }
@@ -168,15 +168,13 @@ class StorageSandbox {
                     absolutePath.replace(redirectKey, replacement)
                 } ?: absolutePath
 
-            Timber.i("Redirected: $path -> $redirectPath")
+            // Timber.i("Redirected: $path -> $redirectPath")
             return redirectPath
         }
 
         private fun normalized(path: String): String {
-            val isDir = path.endsWith("/") ||
-                    path.endsWith("/.") ||
-                    path.endsWith("/..") ||
-                    path == "." || path == ".."
+            val isDir =
+                path.endsWith("/") || path.endsWith("/.") || path.endsWith("/..") || path == "." || path == ".."
             val suffix = if (isDir) "/" else ""
 
             return File(path).normalize().path.trimEnd('/') + suffix
@@ -196,10 +194,28 @@ class StorageSandbox {
         ): Boolean {
             if (path.isNullOrBlank()) return false
             val realPath = path.trimEnd('/') + "/"
-            val best = ruleList.directories.entries.filter { realPath.startsWith(it.key) }
-                .maxByOrNull { realPath.commonPrefixWith(it.key) } ?: return false
 
-            return (best.value and BLOCK == 0) && (best.value and flag == flag)
+            // First check if any rule applies to subdirectories
+            // e.g. Rule: /data/ applicable to /data/app
+            val bestDown = ruleList.directories.entries.filter {
+                realPath.startsWith(it.key)
+            }.maxByOrNull {
+                realPath.commonPrefixWith(it.key)
+            }
+
+            val best = bestDown ?:
+            // Then check if any rules applies to parent directories
+            // e.g. Rule: /data/app applicable to /data
+            ruleList.directories.entries.filter {
+                it.key.startsWith(realPath)
+            }.maxByOrNull {
+                realPath.commonPrefixWith(it.key)
+            } ?: return false
+
+            // Blocks only apply to itself and subdirectories
+            val blocked = (best.value and BLOCK == BLOCK) && path.length >= best.key.length
+
+            return !blocked && (best.value and flag == flag)
         }
 
         fun setFlag(flag: Int, path: String, ruleList: RuleList): RuleList {
@@ -207,8 +223,7 @@ class StorageSandbox {
             val existingRule = ruleList.directories[realPath] ?: 0
             return ruleList.copy(
                 directories = ruleList.directories.putting(
-                    realPath,
-                    flag or existingRule
+                    realPath, flag or existingRule
                 )
             )
         }

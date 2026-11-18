@@ -153,7 +153,9 @@ internal class ActivityStack(private val mService: VActivityManagerService) {
         val snapshotAt = SystemClock.elapsedRealtime()
 
         val recent = try {
-            mAM.appTasks.mapNotNull { it.taskInfo?.id }.toSet()
+            mAM.appTasks.mapNotNull {
+                runCatching { it.taskInfo?.id }.onFailure { Timber.e(it) }.getOrNull()
+            }.toSet()
         } catch (e: Exception) {
             Timber.e(e)
             return

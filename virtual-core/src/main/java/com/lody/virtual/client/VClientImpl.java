@@ -217,7 +217,7 @@ public final class VClientImpl extends IVClient.Stub {
             );
         } else {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                ArrayMap activities = ActivityThread.mActivities.get(ActivityThread.currentActivityThread.call((Object) null));
+                ArrayMap activities = ActivityThread.mActivities.get(ActivityThread.currentActivityThread.call());
                 ActivityThread.handleNewIntent.call(VirtualCore.mainThread(), activities.get(data.token), Collections.singletonList(intent));
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 ActivityThread.handleNewIntent.call(VirtualCore.mainThread(), data.token, Collections.singletonList(intent));
@@ -356,14 +356,6 @@ public final class VClientImpl extends IVClient.Stub {
             applicationInfo.splitNames = new String[1];
         }
 
-        boolean seccompEnabled = VirtualCore.get().isSeccompEnabled();
-        if (seccompEnabled) {
-            boolean initResult = SyscallBroker.initClient();
-            if (!initResult) {
-                throw new IllegalStateException("SECCOMP Initialization failed!");
-            }
-        }
-
         boolean enableXposed = VirtualCore.get().isXposedEnabled();
         if (enableXposed) {
             Timber.i("Xposed is enabled");
@@ -458,7 +450,7 @@ public final class VClientImpl extends IVClient.Stub {
                 // 3. rethrow
                 throw new RuntimeException(
                         "Unable to create application " + (mInitialApplication == null ? " [null application] " : mInitialApplication.getClass().getName())
-                                + ": " + e.toString(), e);
+                                + ": " + e, e);
             }
         }
         VActivityManager.get().appDoneExecuting();

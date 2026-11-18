@@ -1,133 +1,125 @@
-package com.lody.virtual.helper.compat;
+package com.lody.virtual.helper.compat
 
-import android.annotation.TargetApi;
-import android.os.Build;
-import android.os.SystemClock;
+import android.os.Build
+import mirror.com.android.internal.content.NativeLibraryHelper
+import mirror.dalvik.system.VMRuntime
+import timber.log.Timber
+import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import kotlin.time.measureTimedValue
 
-import com.lody.virtual.helper.utils.Reflect;
-import com.lody.virtual.helper.utils.VLog;
+object NativeLibraryHelperCompat {
+    private val TAG: String = NativeLibraryHelperCompat::class.java.getSimpleName()
 
-import java.io.File;
-import java.util.Enumeration;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
+    fun copyNativeBinaries(apkFile: File, sharedLibraryDir: File?): Int {
+        return copyNativeBinariesAfterL(apkFile, sharedLibraryDir)
+    }
 
-import mirror.com.android.internal.content.NativeLibraryHelper;
-import mirror.dalvik.system.VMRuntime;
+    private fun copyNativeBinariesAfterL(apkFile: File, sharedLibraryDir: File?): Int {
+        try {
+            val handle = NativeLibraryHelper.Handle.create.call(apkFile) ?: return -1
 
-public class NativeLibraryHelperCompat {
+            var abi: String? = null
+            val abiSet = getABIsFromApk(apkFile.absolutePath)
+            if (abiSet.isEmpty()) {
+                return 0
+            }
+            val is64Bit = VMRuntime.is64Bit.call(VMRuntime.getRuntime.call())
+            if (is64Bit && isVM64(abiSet)) {
+                if (Build.SUPPORTED_64_BIT_ABIS.size > 0) {
+                    val abiIndex = NativeLibraryHelper.findSupportedAbi.call(
+                        handle,
+                        Build.SUPPORTED_64_BIT_ABIS
+                    )
+                    if (abiIndex >= 0) {
+                        abi = Build.SUPPORTED_64_BIT_ABIS[abiIndex]
+                    }
+                }
+            } else {
+                if (Build.SUPPORTED_32_BIT_ABIS.size > 0) {
+                    val abiIndex = NativeLibraryHelper.findSupportedAbi.call(
+                        handle,
+                        Build.SUPPORTED_32_BIT_ABIS
+                    )
+                    if (abiIndex >= 0) {
+                        abi = Build.SUPPORTED_32_BIT_ABIS[abiIndex]
+                    }
+                }
+            }
 
-	private static String TAG = NativeLibraryHelperCompat.class.getSimpleName();
+            if (abi == null) {
+                Timber.e(TAG, "Not match any abi [%s].", apkFile.path)
+                return -1
+            }
+            return NativeLibraryHelper.copyNativeBinaries.call(handle, sharedLibraryDir, abi)
+        } catch (e: Throwable) {
+            Timber.e(e, "copyNativeBinaries with error")
+        }
 
-	public static int copyNativeBinaries(File apkFile, File sharedLibraryDir) {
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-			return copyNativeBinariesAfterL(apkFile, sharedLibraryDir);
-		} else {
-			return copyNativeBinariesBeforeL(apkFile, sharedLibraryDir);
-		}
-	}
+        return -1
+    }
 
-	private static int copyNativeBinariesBeforeL(File apkFile, File sharedLibraryDir) {
-		try {
-			return Reflect.on(NativeLibraryHelper.TYPE).call("copyNativeBinariesIfNeededLI", apkFile, sharedLibraryDir)
-					.get();
-		} catch (Throwable e) {
-			e.printStackTrace();
-		}
-		return -1;
-	}
+    private fun isVM64(supportedABIs: Set<String>): Boolean {
+        if (Build.SUPPORTED_64_BIT_ABIS.size == 0) {
+            return false
+        }
 
-	@TargetApi(Build.VERSION_CODES.LOLLIPOP)
-	private static int copyNativeBinariesAfterL(File apkFile, File sharedLibraryDir) {
-		try {
-			Object handle = NativeLibraryHelper.Handle.create.call(apkFile);
-			if (handle == null) {
-				return -1;
-			}
+        if (supportedABIs.isEmpty()) {
+            return true
+        }
 
-			String abi = null;
-			Set<String> abiSet = getABIsFromApk(apkFile.getAbsolutePath());
-			if (abiSet == null || abiSet.isEmpty()) {
-				return 0;
-			}
-			boolean is64Bit = VMRuntime.is64Bit.call(VMRuntime.getRuntime.call());
-			if (is64Bit && isVM64(abiSet)) {
-				if (Build.SUPPORTED_64_BIT_ABIS.length > 0) {
-					int abiIndex = NativeLibraryHelper.findSupportedAbi.call(handle, Build.SUPPORTED_64_BIT_ABIS);
-					if (abiIndex >= 0) {
-						abi = Build.SUPPORTED_64_BIT_ABIS[abiIndex];
-					}
-				}
-			} else {
-				if (Build.SUPPORTED_32_BIT_ABIS.length > 0) {
-					int abiIndex = NativeLibraryHelper.findSupportedAbi.call(handle, Build.SUPPORTED_32_BIT_ABIS);
-					if (abiIndex >= 0) {
-						abi = Build.SUPPORTED_32_BIT_ABIS[abiIndex];
-					}
-				}
-			}
+        for (supportedAbi in supportedABIs) {
+            if ("arm64-v8a".endsWith(supportedAbi) || "x86_64" == supportedAbi || "mips64" == supportedAbi) {
+                return true
+            }
+        }
 
-			if (abi == null) {
-				VLog.e(TAG, "Not match any abi [%s].", apkFile.getPath());
-				return -1;
-			}
-			return NativeLibraryHelper.copyNativeBinaries.call(handle, sharedLibraryDir, abi);
-		} catch (Throwable e) {
-			VLog.d(TAG, "copyNativeBinaries with error : %s", e.getLocalizedMessage());
-			e.printStackTrace();
-		}
+        return false
+    }
 
-		return -1;
-	}
+    private fun getABIsFromApk(apk: String?): Set<String> {
+        val apkFile = apk?.let { File(it) } ?: return emptySet()
 
-	@TargetApi(Build.VERSION_CODES.LOLLIPOP)
-	private static boolean isVM64(Set<String> supportedABIs) {
-		if (Build.SUPPORTED_64_BIT_ABIS.length == 0) {
-			return false;
-		}
+        // Seems like newer Android versions with split APKs use directories instead
+        if (apkFile.isDirectory) {
+            val entries = File(apkFile, "lib").listFiles()
+            val abis = entries?.filter { it.isDirectory }?.map { it.name }?.toSet()
+            return abis ?: emptySet()
+        } else if (apkFile.isFile) {
+            try {
+                ZipFile(apkFile).use { apkFile ->
+                    val entries = apkFile.entries()
+                    val supportedABIs: MutableSet<String> = HashSet()
+                    while (entries.hasMoreElements()) {
+                        val entry: ZipEntry = entries.nextElement()
+                        val name = entry.name
+                        if (name.contains("../")) {
+                            continue
+                        }
+                        if (name.startsWith("lib/") && !entry.isDirectory && name.endsWith(".so")) {
+                            val supportedAbi =
+                                name.substring(name.indexOf("/") + 1, name.lastIndexOf("/"))
+                            supportedABIs.add(supportedAbi)
+                        }
+                    }
+                    return supportedABIs
+                }
+            } catch (e: Exception) {
+                Timber.e(e)
+            }
+        }
 
-		if (supportedABIs == null || supportedABIs.isEmpty()) {
-			return true;
-		}
 
-		for (String supportedAbi : supportedABIs) {
-			if ("arm64-v8a".endsWith(supportedAbi) || "x86_64".equals(supportedAbi) || "mips64".equals(supportedAbi)) {
-				return true;
-			}
-		}
+        return emptySet()
+    }
 
-		return false;
-	}
-
-	private static Set<String> getABIsFromApk(String apk) {
-		try (ZipFile apkFile = new ZipFile(apk)) {
-			Enumeration<? extends ZipEntry> entries = apkFile.entries();
-			Set<String> supportedABIs = new HashSet<String>();
-			while (entries.hasMoreElements()) {
-				ZipEntry entry = entries.nextElement();
-				String name = entry.getName();
-				if (name.contains("../")) {
-					continue;
-				}
-				if (name.startsWith("lib/") && !entry.isDirectory() && name.endsWith(".so")) {
-					String supportedAbi = name.substring(name.indexOf("/") + 1, name.lastIndexOf("/"));
-					supportedABIs.add(supportedAbi);
-				}
-			}
-			return supportedABIs;
-		} catch (Exception e) {
-			e.printStackTrace();
-		}
-
-		return null;
-	}
-
-	public static boolean isApk64(String apk) {
-		long start = SystemClock.elapsedRealtime();
-		Set<String> abIsFromApk = getABIsFromApk(apk);
-		System.out.println("pkg: " + apk + " abis: " + abIsFromApk + " cost: " + (SystemClock.elapsedRealtime() - start));
-		return isVM64(abIsFromApk);
-	}
+    @JvmStatic
+    fun isApk64(apk: String?): Boolean {
+        val abisFromApk = measureTimedValue {
+            getABIsFromApk(apk)
+        }
+        Timber.i("pkg: $apk, abis: ${abisFromApk.value}, cost: ${abisFromApk.duration}")
+        return isVM64(abisFromApk.value)
+    }
 }

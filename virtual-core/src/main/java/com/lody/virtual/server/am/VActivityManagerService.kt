@@ -23,6 +23,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.IInterface
 import android.os.Parcel
+import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.os.RemoteException
 import android.os.SystemClock
@@ -31,7 +32,7 @@ import com.lody.virtual.IntentHelper.BROADCAST_COMPONENT
 import com.lody.virtual.IntentHelper.BUNDLE_BINDER
 import com.lody.virtual.IntentHelper.BUNDLE_CLIENT_BINDER
 import com.lody.virtual.IntentHelper.BUNDLE_PID
-import com.lody.virtual.IntentHelper.BUNDLE_SYSCALL_BROKER_FD
+import com.lody.virtual.IntentHelper.BUNDLE_SYSCALL_NOTIF_FD
 import com.lody.virtual.IntentHelper.BUNDLE_VUID
 import com.lody.virtual.IntentHelper.INTENT_EMBEDDED
 import com.lody.virtual.IntentHelper.INTENT_USER_ID
@@ -824,7 +825,7 @@ class VActivityManagerService : IActivityManager.Stub() {
         processDead(record)
         record.lock.open()
 
-        SyscallBroker.destroyServer(record.pid)
+        SyscallBroker.shutdownServer(record.pid)
 
         val message: LogMessage = AppDeath()
         val holder = LogMessageHolder.Builder(message)
@@ -931,10 +932,6 @@ class VActivityManagerService : IActivityManager.Stub() {
         val seccompEnabled = VirtualCore.get().isSeccompEnabled
 
         BundleCompat.putBinder(extras, BUNDLE_BINDER, app)
-        if (seccompEnabled) {
-            val broker = SyscallBroker.generateBroker(vuid)
-            extras.putParcelable(BUNDLE_SYSCALL_BROKER_FD, broker)
-        }
         extras.putInt(BUNDLE_VUID, vuid)
         val res = ProviderCall.call(
             VASettings.getStubAuthority(vpid),
@@ -946,12 +943,12 @@ class VActivityManagerService : IActivityManager.Stub() {
             return null
         }
         val pid = res.getInt(BUNDLE_PID)
-
-        if (seccompEnabled) {
+        val notifFd = res.getParcelable<ParcelFileDescriptor>(BUNDLE_SYSCALL_NOTIF_FD)
+        if (seccompEnabled && notifFd != null) {
             val sandbox = StorageSandbox().apply {
                 initSandboxForPid(info, pid)
             }
-            SyscallBroker.initServer(pid, vuid, sandbox)
+            SyscallBroker.initServer(notifFd.detachFd(),pid, sandbox)
         }
 
         val clientBinder = BundleCompat.getBinder(res, BUNDLE_CLIENT_BINDER)

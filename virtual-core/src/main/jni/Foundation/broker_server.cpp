@@ -1,9 +1,3 @@
-// Syscall broker: services filesystem/socket requests on behalf of a sandboxed client process.
-//
-// Every absolute path the broker touches is resolved to its *real* location first
-// (via O_PATH + /proc/self/fd) and then validated by the Kotlin side through
-// SyscallBroker.isPathAllowed(String). Nothing is trusted based on the client's string.
-
 #include <cerrno>
 #include <climits>
 #include <csignal>
@@ -22,11 +16,15 @@
 #include <sys/uio.h>
 #include <sys/un.h>
 #include <unistd.h>
-
+#include <sys/ioctl.h>
 #include <jni.h>
 #include <atomic>
 #include <map>
-
+#include <linux/seccomp.h>
+#include <linux/audit.h>
+#include <algorithm>
+#include <string>
+#include <unordered_map>
 #include "broker_proto.h"
 #include "fb/ALog.h"
 #include "logger.h"
@@ -58,66 +56,140 @@ static thread_local JavaPolicy g_policy;
 static thread_local char g_cwd[PATH_MAX] = "/";
 static thread_local pid_t g_client_pid;
 
-// Per-request context handed to every handler.
-struct ctx {
-    const struct broker_req_hdr *h;
-    char path[2][PATH_MAX];
-    const uint8_t *blob;
-    int fd[2];                          // attached fds by slot; -1 = none (AT_FDCWD)
-    uint8_t out[BROKER_MAX_OUT];
-    uint32_t out_len;
-    int ret_fd;                         // fd to pass back to the client, or -1
-};
-
 // Must match StorageSandbox.kt
 constexpr int READ = 1;
 constexpr int WRITE = 1 << 1;
 
-/* ========================================================================== */
-/* Policy                                                                     */
-/* ========================================================================== */
-
-// Asks the Kotlin side whether `path` (an absolute, fully resolved path) is allowed.
-// Fails closed: any JNI error means "not allowed".
-static bool isPathAllowed(const char *path, int mode) {
-    JNIEnv *env = g_policy.env;
-    if (!env || mode == 0) return false;
-
-    jstring jpath = env->NewStringUTF(path);
-    if (jpath == nullptr) {
-        env->ExceptionClear();
-        return false;
-    }
-
-    jboolean allowed = env->CallBooleanMethod(g_policy.sandbox, g_policy.check_method,
-                                              jpath, (jint) mode);
-    env->DeleteLocalRef(jpath);
-
-    if (env->ExceptionCheck()) {
-        env->ExceptionClear();
-        return false;
-    }
-    return allowed == JNI_TRUE;
+static int sys_seccomp(unsigned op, unsigned flags, void *args) {
+    return static_cast<int>(syscall(__NR_seccomp, op, flags, args));
 }
 
-static int open_flags_to_mode(int flags) {
-    if (flags & O_PATH) return READ;
-    int mode = 0;
-    switch (flags & O_ACCMODE) {
-        case O_RDONLY:
-            mode = READ;
-            break;
-        case O_WRONLY:
-            mode = WRITE;
-            break;
-        case O_RDWR:
-            mode = READ | WRITE;
-            break;
+#ifndef SECCOMP_IOCTL_NOTIF_ADDFD
+struct seccomp_notif_addfd {
+    __u64 id; __u32 flags; __u32 srcfd; __u32 newfd; __u32 newfd_flags;
+};
+#define SECCOMP_IOCTL_NOTIF_ADDFD _IOW('!', 3, struct seccomp_notif_addfd)
+#endif
+
+#if defined(__NR_newfstatat)
+#define NR_FSTATAT __NR_newfstatat      // arm64 / x86_64 (libc: fstatat64)
+#else
+#define NR_FSTATAT __NR_fstatat64       // 32-bit
+#endif
+#if defined(__NR_renameat2)
+#define NR_RENAME __NR_renameat2
+#else
+#define NR_RENAME __NR_renameat
+#endif
+
+/* ========================================================================== */
+/* Per-notification context + reply helpers                                   */
+/* ========================================================================== */
+struct Ctx {
+    int notif_fd;
+    const seccomp_notif *req;
+    seccomp_notif_resp *resp;
+    int memfd = -1;
+
+    Ctx(int fd, const seccomp_notif *r, seccomp_notif_resp *p) : notif_fd(fd), req(r), resp(p) {}
+
+    ~Ctx() { if (memfd >= 0) close(memfd); }
+
+    Ctx(const Ctx &) = delete;
+
+    uint64_t arg(int i) const { return req->data.args[i]; }
+
+    pid_t tid() const { return (pid_t) req->pid; }
+
+    bool valid() const {
+        __u64 id = req->id;
+        return ioctl(notif_fd, SECCOMP_IOCTL_NOTIF_ID_VALID, &id) == 0;
     }
-    if (flags & (O_CREAT | O_TRUNC | O_APPEND)) mode |= WRITE;
-    return mode;
+
+    int mem() {   // /proc/<tid>/mem, opened lazily, read+write
+        if (memfd < 0) {
+            char p[64];
+            snprintf(p, sizeof p, "/proc/%d/mem", (int) tid());
+            memfd = open(p, O_RDWR | O_CLOEXEC);
+        }
+        return memfd;
+    }
+
+    void cont() const {
+        resp->val = 0;
+        resp->error = 0;
+        resp->flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+    }
+
+    void fail(int e) const {
+        resp->val = 0;
+        resp->error = -e;
+        resp->flags = 0;
+    }
+
+    void ok(int64_t v) const {
+        resp->val = v;
+        resp->error = 0;
+        resp->flags = 0;
+    }
+};
+
+using Handler = void (*)(Ctx &);
+
+/* ========================================================================== */
+/* Tracee memory access                                                       */
+/* ========================================================================== */
+// arm64 Android uses tagged pointers (HWASan/MTE). The kernel untags syscall
+// args, but seccomp_data.args holds the raw value, so /proc/pid/mem needs it stripped.
+static inline uint64_t untag(uint64_t p) {
+#if defined(__aarch64__)
+    return p & 0x00FFFFFFFFFFFFFFULL;
+#else
+    return p;
+#endif
 }
 
+static bool read_remote(Ctx &c, uint64_t addr, void *buf, size_t len) {
+    if (c.mem() < 0) return false;
+    auto *out = static_cast<char *>(buf);
+    size_t done = 0;
+    while (done < len) {
+        ssize_t r = pread(c.mem(), out + done, len - done, (off_t) (addr + done));
+        if (r <= 0) return false;
+        done += (size_t) r;
+    }
+    return true;
+}
+
+static bool write_remote(Ctx &c, uint64_t addr, const void *buf, size_t len) {
+    if (c.mem() < 0) return false;
+    auto *in = static_cast<const char *>(buf);
+    size_t done = 0;
+    while (done < len) {
+        ssize_t r = pwrite(c.mem(), in + done, len - done, (off_t) (addr + done));
+        if (r <= 0) return false;
+        done += (size_t) r;
+    }
+    return true;
+}
+
+// Reads a NUL-terminated string, page by page so we never straddle into an unmapped page.
+static int read_cstr(Ctx &c, uint64_t addr, char *buf, size_t cap) {
+    if (c.mem() < 0) return ESRCH;
+    size_t n = 0;
+    while (n < cap) {
+        size_t chunk = std::min(cap - n, (size_t) (4096 - ((addr + n) & 4095)));
+        ssize_t r = pread(c.mem(), buf + n, chunk, (off_t) (addr + n));
+        if (r <= 0) return EFAULT;
+        if (memchr(buf + n, 0, (size_t) r)) return 0;
+        n += (size_t) r;
+    }
+    return ENAMETOOLONG;
+}
+
+/* ========================================================================== */
+/* Path resolution + policy                                                   */
+/* ========================================================================== */
 static bool getRedirectPath(const char *path, char out[PATH_MAX]) {
     JNIEnv *env = g_policy.env;
     if (!env) return false;
@@ -152,637 +224,490 @@ static bool getRedirectPath(const char *path, char out[PATH_MAX]) {
     return redirected;
 }
 
+static bool isPathAllowed(const char *path, int mode) {
+    JNIEnv *env = g_policy.env;
+    if (!env || mode == 0) return false;
 
-/* ========================================================================== */
-/* Small helpers                                                              */
-/* ========================================================================== */
-
-#define PROC_PATH_SIZE 48
-
-static void closep(const int *p) { if (*p >= 0) close(*p); }
-
-// Declares an int that is automatically closed when it goes out of scope.
-#define AUTOFD __attribute__((cleanup(closep))) int
-
-// Early-return the error code if `x` evaluates to non-zero.
-#define TRY(x) do { int _e = (x); if (_e) return _e; } while (0)
-
-// Run a syscall expression, converting failure into a negative errno.
-#define SC(expr) ({ long _r = (long)(expr); _r < 0 ? (int64_t)-errno : (int64_t)_r; })
-
-// "/proc/self/fd/N": lets path-based syscalls act on an already-vetted inode.
-static void proc_path(int fd, char out[PROC_PATH_SIZE]) {
-    snprintf(out, PROC_PATH_SIZE, "/proc/self/fd/%d", fd);
-}
-
-// Resolves an open fd to its real filesystem path.
-static int fd_path(int fd, char out[PATH_MAX]) {
-    char proc[PROC_PATH_SIZE];
-    proc_path(fd, proc);
-    ssize_t n = readlink(proc, out, PATH_MAX - 1);
-    if (n < 0) return -errno;
-    out[n] = 0;
-    return 0;
-}
-
-/* ========================================================================== */
-/* Path resolution                                                            */
-/* ========================================================================== */
-
-// (dirfd, client path) -> absolute path string. dirfd < 0 means "relative to virtual cwd".
-// This only builds a string; nothing is vetted until one of the open_* helpers runs.
-static int abs_path(int dirfd, const char *p, char out[PATH_MAX]) {
-    if (!p[0]) return -ENOENT;
-
-    char resolved[PATH_MAX];
-
-    if (p[0] == '/') {
-        int n = snprintf(resolved, PATH_MAX, "%s", p);
-        if (n >= PATH_MAX) return -ENAMETOOLONG;
-    } else {
-        char base[PATH_MAX];
-        if (dirfd < 0) {
-            snprintf(base, sizeof base, "%s", g_cwd);
-        } else {
-            struct stat st{};
-            if (fstat(dirfd, &st) < 0) return -errno;
-            if (!S_ISDIR(st.st_mode)) return -ENOTDIR;
-            TRY(fd_path(dirfd, base));
-        }
-        int n = snprintf(resolved, PATH_MAX, "%s/%s", base, p);
-        if (n >= PATH_MAX) return -ENAMETOOLONG;
+    jstring jpath = env->NewStringUTF(path);
+    if (jpath == nullptr) {
+        env->ExceptionClear();
+        return false;
     }
 
-    // Apply sandbox redirection to the fully resolved absolute path
-    char redirected[PATH_MAX];
-    if (getRedirectPath(resolved, redirected)) {
-        snprintf(out, PATH_MAX, "%s", redirected);
-    } else {
-        snprintf(out, PATH_MAX, "%s", resolved);
+    jboolean allowed = env->CallBooleanMethod(g_policy.sandbox, g_policy.check_method,
+                                              jpath, (jint) mode);
+    env->DeleteLocalRef(jpath);
+
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        return false;
     }
-    return 0;
+    return allowed == JNI_TRUE;
 }
 
-// Opens an O_PATH handle to the fully resolved target and checks the *real* path
-// against the policy. Use for operations that act on the target itself.
-static int open_follow(const char *abs, bool nofollow, int mode, int *out) {
-    int fd = open(abs, O_PATH | O_CLOEXEC | (nofollow ? O_NOFOLLOW : 0));
-    if (fd < 0) return -errno;
-
-    char real[PATH_MAX];
-    struct stat st{};
-    int e = fd_path(fd, real);
-    if (!e && fstat(fd, &st) < 0) e = -errno;
-    if (!e && S_ISLNK(st.st_mode)) e = -ELOOP;
-    if (!e && !isPathAllowed(real, mode)) e = -EACCES;
-
-    if (e) {
-        close(fd);
-        return e;
-    }
-    *out = fd;
-    return 0;
-}
-
-// Opens a checked handle to the *parent directory* and returns the validated leaf name.
-// Use for operations that act on the final component itself (mkdir, unlink, rename, ...).
-// The policy is checked on <real parent>/<leaf>.
-static int open_parent(const char *abs, int mode, int *pfd, char leaf[NAME_MAX + 1]) {
-    char dir[PATH_MAX];
-    snprintf(dir, sizeof dir, "%s", abs);
-
-    // Strip trailing slashes, then split into directory and leaf.
-    size_t n = strlen(dir);
-    while (n > 1 && dir[n - 1] == '/') dir[--n] = 0;
-    char *slash = strrchr(dir, '/');
-    if (!slash) return -EINVAL;
-
-    const char *name = slash + 1;
-    if (!*name || !strcmp(name, ".") || !strcmp(name, "..")) return -EINVAL;
-    if (strlen(name) > NAME_MAX) return -ENAMETOOLONG;
-    snprintf(leaf, NAME_MAX + 1, "%s", name);
-
-    if (slash == dir) dir[1] = 0; else *slash = 0;   // parent of "/x" is "/"
-
-    int fd = open(dir, O_PATH | O_DIRECTORY | O_CLOEXEC);
-    if (fd < 0) return -errno;
-
-    char real[PATH_MAX], full[PATH_MAX];
-    int e = fd_path(fd, real);
-    if (!e) {
-        snprintf(full, sizeof full, "%s%s%s", real, strcmp(real, "/") ? "/" : "", leaf);
-        if (!isPathAllowed(full, mode)) e = -EACCES;
-    }
-
-    if (e) {
-        close(fd);
-        return e;
-    }
-    *pfd = fd;
-    return 0;
-}
-
-/* ========================================================================== */
-/* Handlers: opening files                                                    */
-/* ========================================================================== */
-
-#define OPEN_OK_FLAGS (O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND | O_CLOEXEC | \
-                       O_LARGEFILE | O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY | \
-                       O_PATH | O_SYNC | O_NOATIME | O_DSYNC | O_DIRECT)
-
-// Only regular files, directories and character devices may be handed to the client.
-// (No FIFOs, sockets or block devices.)
-static bool is_allowed_file_type(mode_t m) {
-    return S_ISREG(m) || S_ISDIR(m) || S_ISCHR(m);
-}
-
-// a[0] = open flags, a[1] = mode. Returns the opened fd via c->ret_fd.
-static int64_t h_openat(struct ctx *c) {
-    int flags = (int) c->h->a[0];
-    mode_t mode = (mode_t) c->h->a[1] & 0777;
-
-    if ((unsigned) flags & ~(unsigned) OPEN_OK_FLAGS) return -EPERM;
-    if ((flags & O_ACCMODE) == O_ACCMODE) return -EINVAL;
-
-    const int access = open_flags_to_mode(flags);
-
-    char abs[PATH_MAX];
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-    pid_t pid = syscall(SYS_getpid);
-    ALOGD("Trying to open absolute path: %s on %d", abs, pid);
-
-    const int safe_flags = flags | O_CLOEXEC | O_NOCTTY | O_NONBLOCK;
-
-    int fd;
-    if (flags & O_CREAT) {
-        if (strncmp(abs, "/dev/", 5) == 0) return -EACCES;
-
-        char leaf[NAME_MAX + 1];
-        AUTOFD pfd = -1;
-        TRY(open_parent(abs, access, &pfd, leaf));   // access always includes WRITE here
-        fd = openat(pfd, leaf, safe_flags | O_NOFOLLOW, mode);
-        if (fd < 0) return -errno;
-    } else {
-        AUTOFD pfd = -1;
-        struct stat st{};
-        TRY(open_follow(abs, flags & O_NOFOLLOW, access, &pfd));
-        if (fstat(pfd, &st) < 0) return -errno;
-        if (!is_allowed_file_type(st.st_mode)) return -EACCES;
-
-        char proc[PROC_PATH_SIZE];
-        proc_path(pfd, proc);
-        fd = open(proc, safe_flags & ~O_NOFOLLOW);
-        if (fd < 0) return -errno;
-    }
-
-    // Final check on what we actually opened, with the same access.
-    char real[PATH_MAX];
-    struct stat st{};
-    if (fd_path(fd, real) || fstat(fd, &st) < 0 ||
-        !is_allowed_file_type(st.st_mode) || !isPathAllowed(real, access)) {
-        close(fd);
-        return -EACCES;
-    }
-
-    // We forced O_NONBLOCK for the open; restore blocking mode unless the client asked for it.
-    if (!(flags & O_NONBLOCK)) {
-        int fl = fcntl(fd, F_GETFL);
-        if (fl >= 0) fcntl(fd, F_SETFL, fl & ~O_NONBLOCK);
-    }
-
-    c->ret_fd = fd;
-    return 0;
-}
-
-/* ========================================================================== */
-/* Handlers: metadata                                                         */
-/* ========================================================================== */
-
-#if defined(__NR_newfstatat)
-#define NR_FSTATAT __NR_newfstatat
-#define STAT_SZ    sizeof(struct stat)
-#else
-#define NR_FSTATAT __NR_fstatat64
-#define STAT_SZ    sizeof(struct stat64)
-#endif
-
-// a[0] = flags (AT_SYMLINK_NOFOLLOW / AT_EMPTY_PATH)
-static int64_t h_fstatat(struct ctx *c) {
-    int flags = (int) c->h->a[0];
-    if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH)) return -EINVAL;
-
-    // fstat(fd) via AT_EMPTY_PATH
-    if (!c->path[0][0]) {
-        if (!(flags & AT_EMPTY_PATH) || c->fd[0] < 0) return -ENOENT;
-        int64_t r = SC(syscall(NR_FSTATAT, c->fd[0], "", c->out, AT_EMPTY_PATH));
-        if (r == 0) c->out_len = STAT_SZ;
-        return r;
-    }
-
-    char abs[PATH_MAX], leaf[NAME_MAX + 1];
-    AUTOFD fd = -1;
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-
-    int64_t r;
-    if (flags & AT_SYMLINK_NOFOLLOW) {          // lstat: act on the leaf itself
-        TRY(open_parent(abs, READ, &fd, leaf));
-        r = SC(syscall(NR_FSTATAT, fd, leaf, c->out, AT_SYMLINK_NOFOLLOW));
-    } else {                                    // stat: act on the resolved target
-        TRY(open_follow(abs, false, READ, &fd));
-        r = SC(syscall(NR_FSTATAT, fd, "", c->out, AT_EMPTY_PATH));
-    }
-    if (r == 0) c->out_len = STAT_SZ;
-    return r;
-}
-
-// a[0] = struct size for statfs64, 0 for plain statfs
-static int64_t h_statfs(struct ctx *c) {
-    char abs[PATH_MAX], proc[PROC_PATH_SIZE];
-    AUTOFD fd = -1;
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_follow(abs, false, READ, &fd));
-    proc_path(fd, proc);
-
-    int64_t r;
-#ifdef __NR_statfs64
-    if (c->h->a[0]) {
-        if (c->h->a[0] > BROKER_MAX_OUT) return -EINVAL;
-        r = SC(syscall(__NR_statfs64, proc, (size_t) c->h->a[0], c->out));
-        if (r == 0) c->out_len = (uint32_t) c->h->a[0];
-        return r;
-    }
-#endif
-    r = SC(syscall(__NR_statfs, proc, c->out));
-    if (r == 0) c->out_len = sizeof(struct statfs);
-    return r;
-}
-
-// a[0] = length
-static int64_t h_truncate(struct ctx *c) {
-    char abs[PATH_MAX], proc[PROC_PATH_SIZE];
-    AUTOFD fd = -1;
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_follow(abs, false, WRITE, &fd));
-    proc_path(fd, proc);                        // path-based truncate via magic link
-    return SC(truncate(proc, (off_t) c->h->a[0]));
-}
-
-// a: uid, gid, flags
-static int64_t h_fchownat(struct ctx *c) {
-    auto uid = (uid_t) c->h->a[0];
-    auto gid = (gid_t) c->h->a[1];
-    int flags = (int) c->h->a[2];
-    if (flags & ~AT_SYMLINK_NOFOLLOW) return -EINVAL;
-
-    // Policy: the client may only "chown" to our own ids (or -1 = leave unchanged).
-    if ((uid != (uid_t) -1 && uid != getuid()) || (gid != (gid_t) -1 && gid != getgid()))
-        return -EPERM;
-
-    char abs[PATH_MAX], leaf[NAME_MAX + 1], proc[PROC_PATH_SIZE];
-    AUTOFD fd = -1;
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-
-    if (flags & AT_SYMLINK_NOFOLLOW) {
-        TRY(open_parent(abs, WRITE, &fd, leaf));
-        return SC(fchownat(fd, leaf, uid, gid, AT_SYMLINK_NOFOLLOW));
-    }
-    TRY(open_follow(abs, false, WRITE, &fd));
-    proc_path(fd, proc);
-    return SC(chown(proc, uid, gid));
-}
-
-// a[0] = flags, a[1] = 1 if path was NULL (futimens); blob = struct timespec[2] or empty
-static int64_t h_utimensat(struct ctx *c) {
-    struct timespec ts[2];
-    const struct timespec *times = nullptr;
-    if (c->h->blob_len) {
-        if (c->h->blob_len != sizeof ts) return -EINVAL;
-        memcpy(ts, c->blob, sizeof ts);         // blob may be unaligned
-        times = ts;
-    }
-
-    int flags = (int) c->h->a[0];
-    if (flags & ~AT_SYMLINK_NOFOLLOW) return -EINVAL;
-
-    // futimens on a client-supplied fd
-    if (c->h->a[1]) {
-        if (c->fd[0] < 0) return -EBADF;
-        return SC(syscall(__NR_utimensat, c->fd[0], NULL, times, 0));
-    }
-
-    char abs[PATH_MAX], leaf[NAME_MAX + 1], proc[PROC_PATH_SIZE];
-    AUTOFD fd = -1;
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-
-    if (flags & AT_SYMLINK_NOFOLLOW) {
-        TRY(open_parent(abs, WRITE, &fd, leaf));
-        return SC(syscall(__NR_utimensat, fd, leaf, times, AT_SYMLINK_NOFOLLOW));
-    }
-    TRY(open_follow(abs, false, WRITE, &fd));
-    proc_path(fd, proc);
-    return SC(syscall(__NR_utimensat, AT_FDCWD, proc, times, 0));
-}
-
-// a[0] = buffer capacity is c->h->out_cap
-static int64_t h_readlinkat(struct ctx *c) {
-    char abs[PATH_MAX], leaf[NAME_MAX + 1];
-    AUTOFD pfd = -1;
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_parent(abs, READ, &pfd, leaf));
-
-    ssize_t n = readlinkat(pfd, leaf, (char *) c->out, c->h->out_cap);
-    if (n < 0) return -errno;
-    c->out_len = (uint32_t) n;
-    return n;
-}
-
-/* ========================================================================== */
-/* Handlers: creating / removing / renaming                                   */
-/* ========================================================================== */
-
-// a[0] = mode
-static int64_t h_mkdirat(struct ctx *c) {
-    char abs[PATH_MAX], leaf[NAME_MAX + 1];
-    AUTOFD pfd = -1;
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_parent(abs, WRITE, &pfd, leaf));
-    return SC(mkdirat(pfd, leaf, (mode_t) c->h->a[0] & 0777));
-}
-
-// a: mode, dev
-static int64_t h_mknodat(struct ctx *c) {
-    auto mode = (mode_t) c->h->a[0];
-    mode_t type = mode & S_IFMT;
-    if (type != S_IFREG && type != S_IFIFO && type != S_IFSOCK) return -EPERM;  // no device nodes
-
-    char abs[PATH_MAX], leaf[NAME_MAX + 1];
-    AUTOFD pfd = -1;
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_parent(abs, WRITE, &pfd, leaf));
-    return SC(mknodat(pfd, leaf, type | (mode & 0777), 0));
-}
-
-// a[0] = flags (AT_REMOVEDIR)
-static int64_t h_unlinkat(struct ctx *c) {
-    int flags = (int) c->h->a[0];
-    if (flags & ~AT_REMOVEDIR) return -EINVAL;
-
-    char abs[PATH_MAX], leaf[NAME_MAX + 1];
-    AUTOFD pfd = -1;
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_parent(abs, WRITE, &pfd, leaf));
-    return SC(unlinkat(pfd, leaf, flags));
-}
-
-// path0 = target text, path1 = link path (resolved against dirfd slot 1)
-// TODO Ensure that the host process does not touch application data, otherwise it can follow symlinks
-static int64_t h_symlinkat(struct ctx *c) {
-    char abs[PATH_MAX], leaf[NAME_MAX + 1];
-    AUTOFD pfd = -1;
-    TRY(abs_path(c->fd[1], c->path[1], abs));
-    TRY(open_parent(abs, WRITE, &pfd, leaf));
-    // The target is just text. That is safe because the broker re-resolves and
-    // policy-checks every path it ever follows.
-    return SC(symlinkat(c->path[0], pfd, leaf));
-}
-
-// a[0] = flags (AT_SYMLINK_FOLLOW)
-static int64_t h_linkat(struct ctx *c) {
-    int flags = (int) c->h->a[0];
-    if (flags & ~AT_SYMLINK_FOLLOW) return -EINVAL;
-
-    char src[PATH_MAX], dst[PATH_MAX], src_leaf[NAME_MAX + 1], dst_leaf[NAME_MAX + 1];
-    char proc[PROC_PATH_SIZE];
-    AUTOFD src_dir = -1, dst_dir = -1, src_fd = -1;
-    TRY(abs_path(c->fd[0], c->path[0], src));
-    TRY(abs_path(c->fd[1], c->path[1], dst));
-
-    TRY(open_parent(dst, WRITE, &dst_dir, dst_leaf));
-
-    if (flags & AT_SYMLINK_FOLLOW) {
-        TRY(open_follow(src, false, READ | WRITE, &src_fd));
-        proc_path(src_fd, proc);
-        return SC(linkat(AT_FDCWD, proc, dst_dir, dst_leaf, AT_SYMLINK_FOLLOW));
-    }
-    TRY(open_parent(src, READ | WRITE, &src_dir, src_leaf));
-    return SC(linkat(src_dir, src_leaf, dst_dir, dst_leaf, 0));
-}
-
-// a[0] = renameat2 flags
-static int64_t h_renameat(struct ctx *c) {
-    if ((unsigned) c->h->a[0] & ~(unsigned) RENAME_NOREPLACE) return -EINVAL;
-
-    char from[PATH_MAX], to[PATH_MAX], from_leaf[NAME_MAX + 1], to_leaf[NAME_MAX + 1];
-    AUTOFD from_dir = -1, to_dir = -1;
-    TRY(abs_path(c->fd[0], c->path[0], from));
-    TRY(abs_path(c->fd[1], c->path[1], to));
-    TRY(open_parent(from, WRITE, &from_dir, from_leaf));
-    TRY(open_parent(to, WRITE, &to_dir, to_leaf));
-    return SC(syscall(__NR_renameat2, from_dir, from_leaf, to_dir, to_leaf,
-                      (unsigned) c->h->a[0]));
-}
-
-/* ========================================================================== */
-/* Handlers: virtual cwd                                                      */
-/* ========================================================================== */
-
-// chdir never happens for real: the broker owns the client's cwd.
-static int64_t h_chdir(struct ctx *c) {
-    char abs[PATH_MAX], real[PATH_MAX];
-    AUTOFD fd = -1;
-    struct stat st{};
-    TRY(abs_path(c->fd[0], c->path[0], abs));
-    TRY(open_follow(abs, false, READ, &fd));
-    if (fstat(fd, &st) < 0) return -errno;
-    if (!S_ISDIR(st.st_mode)) return -ENOTDIR;
-    TRY(fd_path(fd, real));
-    snprintf(g_cwd, sizeof g_cwd, "%s", real);
-    return 0;
-}
-
-static int64_t h_getcwd(struct ctx *c) {
-    size_t n = strlen(g_cwd) + 1;
-    if (n > c->h->out_cap) return -ERANGE;
-    memcpy(c->out, g_cwd, n);
-    c->out_len = (uint32_t) n;
-    return (int64_t) n;
-}
-
-/* ========================================================================== */
-/* Handlers: signals and sockets                                              */
-/* ========================================================================== */
-
-static int64_t h_kill(struct ctx *c) {
-    int pid = (int) c->h->a[0];
-    int sig = (int) c->h->a[1];
-    if (pid != g_client_pid) return -EPERM;     // no pid 0, -1, groups or other processes
-    if (sig < 0 || sig >= 32 || !((1u << sig))) return -EPERM;
-    return SC(kill(pid, sig));
-}
-
-/* ========================================================================== */
-/* Dispatch table                                                             */
-/* ========================================================================== */
-
-static const struct {
-    int64_t (*fn)(struct ctx *);
-
-    uint8_t npaths;                             // how many path strings the op accepts
-} kOps[OP_COUNT] = {
-        [OP_OPENAT]    = {h_openat, 1},
-        [OP_FSTATAT]   = {h_fstatat, 1},
-        [OP_STATFS]    = {h_statfs, 1},
-        [OP_FCHOWNAT]  = {h_fchownat, 1},
-        [OP_RENAMEAT]  = {h_renameat, 2},
-        [OP_MKDIRAT]   = {h_mkdirat, 1},
-        [OP_MKNODAT]   = {h_mknodat, 1},
-        [OP_TRUNCATE]  = {h_truncate, 1},
-        [OP_LINKAT]    = {h_linkat, 2},
-        [OP_READLINKAT]= {h_readlinkat, 1},
-        [OP_UNLINKAT]  = {h_unlinkat, 1},
-        [OP_SYMLINKAT] = {h_symlinkat, 2},
-        [OP_UTIMENSAT] = {h_utimensat, 1},
-        [OP_CHDIR]     = {h_chdir, 1},
-        [OP_GETCWD]    = {h_getcwd, 0},
-        [OP_KILL]      = {h_kill, 0},
+struct PathResult {
+    std::string path;        // final path the broker should operate on
+    bool redirected = false;
+    uint64_t addr = 0;       // tracee address of the original string (for patching)
+    size_t raw_len = 0;      // strlen of the original string
 };
+constexpr int PASSTHRU = -1; // empty path / NULL path: operates on an already-open fd
 
-/* ========================================================================== */
-/* Serve loop                                                                 */
-/* ========================================================================== */
+// "/proc/self" would resolve to the *broker*, so rewrite it to the tracee.
+static void fix_proc_self(std::string &p, pid_t tid) {
+    static const char kSelf[] = "/proc/self", kThread[] = "/proc/thread-self";
+    auto starts = [&](const char *pre, size_t n) {
+        return p.compare(0, n, pre) == 0 && (p.size() == n || p[n] == '/');
+    };
+    std::string t = std::to_string(tid);
+    if (starts(kSelf, sizeof(kSelf) - 1))
+        p = "/proc/" + t + p.substr(sizeof(kSelf) - 1);
+    else if (starts(kThread, sizeof(kThread) - 1))
+        p = "/proc/" + t + "/task/" + t + p.substr(sizeof(kThread) - 1);
+}
 
-// Sends the response header, optional output payload and optional fd (SCM_RIGHTS).
-static void reply(int sock, int64_t result, const void *out, uint32_t out_len, int fd) {
-    struct broker_resp_hdr resp = {BROKER_MAGIC, out_len, result};
-    struct iovec iov[2] = {{&resp,        sizeof resp},
-                           {(void *) out, out_len}};
+// Makes `raw` absolute (relative to tracee cwd / dirfd) and resolves symlinks.
+// follow=false => the last component is NOT resolved (lstat/unlink/readlink semantics),
+// only its parent directory is.
+static int resolve_path(Ctx &c, int dirfd, const char *raw, bool follow, std::string &out) {
+    std::string p(raw);
+    if (p.empty()) return ENOENT;
 
-    union {
-        char buf[CMSG_SPACE(sizeof(int))];
-        struct cmsghdr align;
-    } control{};
+    if (p[0] != '/') {
+        char link[64], base[PATH_MAX];
+        if (dirfd == AT_FDCWD) snprintf(link, sizeof link, "/proc/%d/cwd", (int) c.tid());
+        else snprintf(link, sizeof link, "/proc/%d/fd/%d", (int) c.tid(), dirfd);
+        ssize_t n = readlink(link, base, sizeof(base) - 1);
+        if (n < 0) {
+            if (dirfd == AT_FDCWD && g_cwd[0] == '/') {
+                strncpy(base, g_cwd, sizeof base - 1);
+                n = (ssize_t) strlen(base);
+            } else return dirfd == AT_FDCWD ? errno : EBADF;
+        }
+        base[n] = 0;
+        if (base[0] != '/') return ENOTDIR;
+        p = std::string(base) + "/" + p;
+    }
+    fix_proc_self(p, c.tid());
+    while (p.size() > 1 && p.back() == '/') p.pop_back();
 
-    struct msghdr msg = {};
-    msg.msg_iov = iov;
-    msg.msg_iovlen = out_len ? 2 : 1;
+    char buf[PATH_MAX];
+    size_t slash = p.rfind('/');
+    std::string last = p.substr(slash + 1);
+    bool special = last.empty() || last == "." || last == "..";
 
-    if (fd >= 0) {
-        msg.msg_control = control.buf;
-        msg.msg_controllen = sizeof control.buf;
-        struct cmsghdr *cm = CMSG_FIRSTHDR(&msg);
-        cm->cmsg_level = SOL_SOCKET;
-        cm->cmsg_type = SCM_RIGHTS;
-        cm->cmsg_len = CMSG_LEN(sizeof(int));
-        memcpy(CMSG_DATA(cm), &fd, sizeof(int));
+    if (follow || special) {
+        if (realpath(p.c_str(), buf)) {
+            out = buf;
+            return 0;
+        }
+        if (special || errno != ENOENT) return errno;
+        // final component doesn't exist (create case): fall through to parent + name
+    }
+    std::string parent = slash == 0 ? "/" : p.substr(0, slash);
+    if (!realpath(parent.c_str(), buf)) return errno;
+    out = buf;
+    if (out != "/") out += '/';
+    out += last;
+    return 0;
+}
+
+// Order: redirect first (the sandbox decides where this path really lives),
+// otherwise the path must be allowed for the requested access mode.
+static int authorize(const std::string &resolved, int mode, PathResult &r) {
+    char redirected[PATH_MAX];
+    char* realPath = const_cast<char *>(resolved.c_str());
+
+    if (getRedirectPath(resolved.c_str(), redirected)) {
+        realPath = redirected;
     }
 
-    ssize_t n;
-    do { n = sendmsg(sock, &msg, MSG_NOSIGNAL); } while (n < 0 && errno == EINTR);
+    if (!isPathAllowed(resolved.c_str(), mode)) return EACCES;
+    r.path = resolved;
+    r.redirected = false;
+    return 0;
 }
 
-// Validates the request framing. `nfd` is the number of fds received with it.
-static bool request_is_valid(const struct broker_req_hdr *h, ssize_t n, int nfd,
-                             bool too_many_fds, int msg_flags) {
-    if (too_many_fds || (msg_flags & (MSG_TRUNC | MSG_CTRUNC))) return false;
-    if ((size_t) n < sizeof *h || h->magic != BROKER_MAGIC) return false;
-    if (h->op <= 0 || h->op >= OP_COUNT) return false;
-
-    if (h->path_len[0] >= PATH_MAX || h->path_len[1] >= PATH_MAX) return false;
-    if (h->blob_len > BROKER_MAX_BLOB || h->out_cap > BROKER_MAX_OUT) return false;
-    if ((size_t) n != sizeof *h + h->path_len[0] + h->path_len[1] + h->blob_len) return false;
-
-    if ((h->fdmask & ~3u) != 0 || __builtin_popcount(h->fdmask) != nfd) return false;
-
-    // The op must actually accept as many paths as were supplied.
-    const uint8_t npaths = kOps[h->op].npaths;
-    if (npaths < 1 && h->path_len[0]) return false;
-    if (npaths < 2 && h->path_len[1]) return false;
-    return true;
+static int
+resolve_and_authorize(Ctx &c, int dirfd, const char *raw, bool follow, int mode, PathResult &r) {
+    std::string resolved;
+    int e = resolve_path(c, dirfd, raw, follow, resolved);
+    if (e) {
+        return e;
+    }
+    return authorize(resolved, mode, r);
 }
 
-static void broker_serve(int sock, pid_t client_pid) {
-    g_client_pid = client_pid;   // NOT SO_PEERCRED: for a socketpair that reports the *creator*
+// Read the path argument, resolve, authorize. Returns 0, errno, or PASSTHRU.
+static int prepare_path(Ctx &c, int dirfd, int path_arg, bool follow, int mode,
+                        bool allow_empty, PathResult &r) {
+    r.addr = untag(c.arg(path_arg));
+    if (!r.addr) return allow_empty ? PASSTHRU : EFAULT;
+    char raw[PATH_MAX];
+    int e = read_cstr(c, r.addr, raw, sizeof raw);
+    if (e) return e;
+    if (!c.valid()) return ESRCH;                  // tracee gone / syscall interrupted
+    if (!raw[0]) return allow_empty ? PASSTHRU : ENOENT;
+    r.raw_len = strlen(raw);
+    return resolve_and_authorize(c, dirfd, raw, follow, mode, r);
+}
 
-    thread_local static struct {
-        struct broker_req_hdr h;
-        uint8_t data[2 * PATH_MAX + BROKER_MAX_BLOB];
-    } req;
-    thread_local static struct ctx c;
+#define FAIL_OR_PASS(e)  do { if ((e) == PASSTHRU) return c.cont(); if (e) return c.fail(e); } while (0)
+#define FAIL_ON(e)       do { if (e) return c.fail(e); } while (0)
+
+/* ========================================================================== */
+/* Handlers                                                                   */
+/* ========================================================================== */
+static void do_open(Ctx &c, int dirfd, int path_arg, int flags_arg, int mode_arg) {
+    int flags = (int) c.arg(flags_arg);
+    auto mode = (mode_t) c.arg(mode_arg);
+    int acc = flags & O_ACCMODE;
+    int need = (acc == O_WRONLY) ? WRITE : (acc == O_RDWR) ? (READ | WRITE) : READ;
+    if (flags & (O_CREAT | O_TRUNC | O_APPEND)) need |= WRITE;
+    if (flags & O_PATH) need = READ;
+
+    PathResult p;
+    int e = prepare_path(c, dirfd, path_arg, !(flags & O_NOFOLLOW), need, false, p);
+
+    FAIL_ON(e);
+
+    // Path is already fully resolved, so O_NOFOLLOW closes the dangling-symlink+O_CREAT escape.
+    int fd = (int) syscall(__NR_openat, AT_FDCWD, p.path.c_str(), flags | O_CLOEXEC | O_NOFOLLOW,
+                           mode);
+    if (fd < 0) return c.fail(errno);
+
+    seccomp_notif_addfd add{};
+    add.id = c.req->id;
+    add.srcfd = (uint32_t) fd;
+    add.newfd = 0;
+    add.newfd_flags = (flags & O_CLOEXEC) ? O_CLOEXEC : 0;
+    int newfd = (int) ioctl(c.notif_fd, SECCOMP_IOCTL_NOTIF_ADDFD, &add);
+    int saved = errno;
+    close(fd);
+    if (newfd < 0) return c.fail(saved);
+    c.ok(newfd);
+}
+
+static void h_openat(Ctx &c) { do_open(c, (int) c.arg(0), 1, 2, 3); }
+
+#ifdef __NR_open
+static void h_open(Ctx &c)   { do_open(c, AT_FDCWD, 0, 1, 2); }
+#endif
+
+// fchownat(dirfd, path, uid, gid, flags)
+static void h_fchownat(Ctx &c) {
+    int flags = (int) c.arg(4);
+    PathResult p;
+    int e = prepare_path(c, (int) c.arg(0), 1, !(flags & AT_SYMLINK_NOFOLLOW), WRITE,
+                         flags & AT_EMPTY_PATH, p);
+    FAIL_OR_PASS(e);
+    long r = syscall(__NR_fchownat, AT_FDCWD, p.path.c_str(), (uid_t) c.arg(2), (gid_t) c.arg(3),
+                     AT_SYMLINK_NOFOLLOW);
+    r < 0 ? c.fail(errno) : c.ok(0);
+}
+
+// renameat(olddirfd, old, newdirfd, new) / renameat2(..., flags)
+static void do_rename(Ctx &c, int flags_arg) {
+    PathResult o, n;
+    int e = prepare_path(c, (int) c.arg(0), 1, false, READ | WRITE, false, o);
+    if (!e) e = prepare_path(c, (int) c.arg(2), 3, false, WRITE, false, n);
+    FAIL_ON(e);
+    unsigned flags = flags_arg >= 0 ? (unsigned) c.arg(flags_arg) : 0;
+    long r = syscall(NR_RENAME, AT_FDCWD, o.path.c_str(), AT_FDCWD, n.path.c_str(), flags);
+    r < 0 ? c.fail(errno) : c.ok(0);
+}
+
+#ifdef __NR_renameat
+
+static void h_renameat(Ctx &c) { do_rename(c, -1); }
+
+#endif
+#ifdef __NR_renameat2
+
+static void h_renameat2(Ctx &c) { do_rename(c, 4); }
+
+#endif
+
+// fstatat64 (kernel: newfstatat / fstatat64): (dirfd, path, statbuf, flags)
+static void h_fstatat(Ctx &c) {
+    int flags = (int) c.arg(3);
+    PathResult p;
+    int e = prepare_path(c, (int) c.arg(0), 1, !(flags & AT_SYMLINK_NOFOLLOW), READ,
+                         flags & AT_EMPTY_PATH, p);
+    FAIL_OR_PASS(e);
+    struct stat64 st{};
+    long r = syscall(NR_FSTATAT, AT_FDCWD, p.path.c_str(), &st, AT_SYMLINK_NOFOLLOW);
+    if (r < 0) return c.fail(errno);
+    if (!write_remote(c, untag(c.arg(2)), &st, sizeof st)) return c.fail(EFAULT);
+    c.ok(0);
+}
+
+// statfs(path, buf)  [LP64]   /   statfs64(path, size, buf)  [32-bit]
+static void statfs_impl(Ctx &c, int buf_arg, int size_arg) {
+    PathResult p;
+    int e = prepare_path(c, AT_FDCWD, 0, true, READ, false, p);
+    FAIL_ON(e);
+    char kbuf[256];
+    size_t sz;
+    long r;
+#if defined(__LP64__)
+    (void) size_arg;
+    sz = sizeof(struct statfs);
+    r = syscall(__NR_statfs, p.path.c_str(), kbuf);
+#else
+    if (size_arg < 0) return c.cont();          // legacy statfs: authorize only
+    sz = std::min<size_t>((size_t) c.arg(size_arg), sizeof kbuf);
+    r = syscall(__NR_statfs64, p.path.c_str(), sz, kbuf);
+#endif
+    if (r < 0) return c.fail(errno);
+    if (!write_remote(c, untag(c.arg(buf_arg)), kbuf, sz)) return c.fail(EFAULT);
+    c.ok(0);
+}
+
+#ifdef __NR_statfs
+
+static void h_statfs(Ctx &c) { statfs_impl(c, 1, -1); }
+
+#endif
+#ifdef __NR_statfs64
+static void h_statfs64(Ctx &c) { statfs_impl(c, 2, 1); }
+#endif
+
+// mkdirat(dirfd, path, mode)
+static void h_mkdirat(Ctx &c) {
+    PathResult p;
+    int e = prepare_path(c, (int) c.arg(0), 1, false, WRITE, false, p);
+    FAIL_ON(e);
+    long r = syscall(__NR_mkdirat, AT_FDCWD, p.path.c_str(), (mode_t) c.arg(2));
+    r < 0 ? c.fail(errno) : c.ok(0);
+}
+
+// mknodat(dirfd, path, mode, dev)
+static void h_mknodat(Ctx &c) {
+    PathResult p;
+    int e = prepare_path(c, (int) c.arg(0), 1, false, WRITE, false, p);
+    FAIL_ON(e);
+    long r = syscall(__NR_mknodat, AT_FDCWD, p.path.c_str(), (mode_t) c.arg(2),
+                     (unsigned) c.arg(3));
+    r < 0 ? c.fail(errno) : c.ok(0);
+}
+
+// truncate(path, length)
+static void h_truncate(Ctx &c) {
+    PathResult p;
+    int e = prepare_path(c, AT_FDCWD, 0, true, WRITE, false, p);
+    FAIL_ON(e);
+    long r = syscall(__NR_truncate, p.path.c_str(), (off_t) c.arg(1));
+    r < 0 ? c.fail(errno) : c.ok(0);
+}
+
+// linkat(olddirfd, old, newdirfd, new, flags)
+static void h_linkat(Ctx &c) {
+    int flags = (int) c.arg(4);
+    PathResult o, n;
+    int e = prepare_path(c, (int) c.arg(0), 1, flags & AT_SYMLINK_FOLLOW, READ, false, o);
+    if (!e) e = prepare_path(c, (int) c.arg(2), 3, false, WRITE, false, n);
+    FAIL_ON(e);
+    long r = syscall(__NR_linkat, AT_FDCWD, o.path.c_str(), AT_FDCWD, n.path.c_str(), 0);
+    r < 0 ? c.fail(errno) : c.ok(0);
+}
+
+// readlinkat(dirfd, path, buf, bufsiz)
+static void h_readlinkat(Ctx &c) {
+    PathResult p;
+    int e = prepare_path(c, (int) c.arg(0), 1, false, READ, false, p);
+    FAIL_ON(e);
+    char tmp[PATH_MAX];
+    size_t cap = std::min<size_t>((size_t) c.arg(3), sizeof tmp);
+    long r = syscall(__NR_readlinkat, AT_FDCWD, p.path.c_str(), tmp, cap);
+    if (r < 0) return c.fail(errno);
+    if (!write_remote(c, untag(c.arg(2)), tmp, (size_t) r)) return c.fail(EFAULT);
+    c.ok(r);
+}
+
+// unlinkat(dirfd, path, flags)
+static void h_unlinkat(Ctx &c) {
+    PathResult p;
+    int e = prepare_path(c, (int) c.arg(0), 1, false, WRITE, false, p);
+    FAIL_ON(e);
+    long r = syscall(__NR_unlinkat, AT_FDCWD, p.path.c_str(), (int) c.arg(2));
+    r < 0 ? c.fail(errno) : c.ok(0);
+}
+
+// symlinkat(target, newdirfd, linkpath). `target` is just data; it is checked when later followed.
+static void h_symlinkat(Ctx &c) {
+    char target[PATH_MAX];
+    int e = read_cstr(c, untag(c.arg(0)), target, sizeof target);
+    FAIL_ON(e);
+    PathResult p;
+    e = prepare_path(c, (int) c.arg(1), 2, false, WRITE, false, p);
+    FAIL_ON(e);
+    long r = syscall(__NR_symlinkat, target, AT_FDCWD, p.path.c_str());
+    r < 0 ? c.fail(errno) : c.ok(0);
+}
+
+// utimensat(dirfd, path, times[2], flags). path==NULL => futimens on dirfd => CONTINUE.
+static void h_utimensat(Ctx &c) {
+    int flags = (int) c.arg(3);
+    PathResult p;
+    int e = prepare_path(c, (int) c.arg(0), 1, !(flags & AT_SYMLINK_NOFOLLOW), WRITE, true, p);
+    FAIL_OR_PASS(e);
+#if defined(__LP64__)
+    struct timespec ts[2];
+    uint64_t tp = untag(c.arg(2));
+    if (tp && !read_remote(c, tp, ts, sizeof ts)) return c.fail(EFAULT);
+    long r = syscall(__NR_utimensat, AT_FDCWD, p.path.c_str(), tp ? ts : nullptr,
+                     AT_SYMLINK_NOFOLLOW);
+    r < 0 ? c.fail(errno) : c.ok(0);
+#else
+    c.cont();   // 32-bit timespec/time64 layouts: authorize only
+#endif
+}
+
+// This is NOT secure, an attacker can overwrite the memory before the syscall is executed.
+// However, this is the best we can do on some syscalls such as execve which must be processed
+// in the child. Use this method sparingly.
+static void patch_and_continue(Ctx &c, int path_arg, int mode) {
+    PathResult p;
+    int e = prepare_path(c, AT_FDCWD, path_arg, true, mode, false, p);
+    FAIL_ON(e);
+    if (p.redirected) {
+        if (p.path.size() > p.raw_len)
+            return c.fail(ENAMETOOLONG);   // would overflow the tracee's buffer
+        if (!write_remote(c, p.addr, p.path.c_str(), p.path.size() + 1)) return c.fail(EFAULT);
+    }
+    if (!c.valid()) return c.fail(ESRCH);
+    c.cont();
+}
+
+static void h_chdir(Ctx &c) { patch_and_continue(c, 0, READ); }
+
+static void h_execve(Ctx &c) { patch_and_continue(c, 0, READ); }
+
+// connect(fd, addr, addrlen): only filesystem AF_UNIX sockets are path-checked.
+static void h_connect(Ctx &c) {
+    const size_t off = offsetof(sockaddr_un, sun_path);
+    uint64_t addr = untag(c.arg(1));
+    auto len = (size_t) c.arg(2);
+    if (!addr || len <= off || len > sizeof(sockaddr_un))
+        return c.cont();   // kernel reports the error
+
+    sockaddr_un sa{};
+    memset(&sa, 0, sizeof sa);
+    if (!read_remote(c, addr, &sa, len)) return c.cont();
+    if (sa.sun_family != AF_UNIX || sa.sun_path[0] == '\0')
+        return c.cont(); // inet / abstract / unnamed
+    if (!c.valid()) return c.fail(ESRCH);
+
+    std::string raw(sa.sun_path, strnlen(sa.sun_path, len - off));
+    PathResult p;
+    int e = resolve_and_authorize(c, AT_FDCWD, raw.c_str(), true, WRITE, p);
+    FAIL_ON(e);
+    if (p.redirected) {
+        if (p.path.size() + 1 > len - off) return c.fail(ENAMETOOLONG);
+        if (!write_remote(c, addr + off, p.path.c_str(), p.path.size() + 1)) return c.fail(EFAULT);
+    }
+    c.cont();
+}
+
+// kill(pid, sig). PLACEHOLDER policy: protect the host/server process. Replace with a Kotlin
+// callback if you need "only signal processes in this virtual app".
+static bool isKillAllowed(pid_t target, int /*sig*/) {
+    return !(target == -1 || target == 1 || target == getpid());
+}
+
+static void h_kill(Ctx &c) {
+    if (!isKillAllowed((pid_t) c.arg(0), (int) c.arg(1))) return c.fail(EPERM);
+    c.cont();
+}
+
+/* ========================================================================== */
+/* Function map: add new syscalls here                                        */
+/* ========================================================================== */
+static const std::unordered_map<int, Handler> &handler_table() {
+    static const std::unordered_map<int, Handler> table = [] {
+        std::unordered_map<int, Handler> m;
+#ifdef __NR_open
+        m[__NR_open]       = h_open;        // x86_64 only (also covers __open_2)
+#endif
+        m[__NR_openat] = h_openat;      // also covers __openat_2
+        m[__NR_fchownat] = h_fchownat;
+#ifdef __NR_renameat
+        m[__NR_renameat] = h_renameat;
+#endif
+#ifdef __NR_renameat2
+        m[__NR_renameat2] = h_renameat2;   // libc renameat() may issue this on arm64
+#endif
+        m[NR_FSTATAT] = h_fstatat;     // libc fstatat64
+#ifdef __NR_statfs
+        m[__NR_statfs] = h_statfs;
+#endif
+#ifdef __NR_statfs64
+        m[__NR_statfs64]   = h_statfs64;    // 32-bit only
+#endif
+        m[__NR_mkdirat] = h_mkdirat;
+        m[__NR_mknodat] = h_mknodat;
+        m[__NR_truncate] = h_truncate;
+        m[__NR_linkat] = h_linkat;
+        m[__NR_readlinkat] = h_readlinkat;
+        m[__NR_unlinkat] = h_unlinkat;
+        m[__NR_symlinkat] = h_symlinkat;
+        m[__NR_utimensat] = h_utimensat;
+        m[__NR_chdir] = h_chdir;
+        m[__NR_execve] = h_execve;
+        m[__NR_kill] = h_kill;
+//        m[__NR_connect] = h_connect;
+        return m;
+    }();
+    return table;
+}
+
+/* ========================================================================== */
+/* Broker loop                                                                */
+/* ========================================================================== */
+static void broker_serve(int fd, pid_t client_pid) {
+    g_client_pid = client_pid;
+
+    seccomp_notif_sizes sizes{};
+    if (sys_seccomp(SECCOMP_GET_NOTIF_SIZES, 0, &sizes) != 0) {
+        perror("SECCOMP_GET_NOTIF_SIZES");
+        return;
+    }
+    auto *req = static_cast<seccomp_notif *>(calloc(1, sizes.seccomp_notif));
+    auto *resp = static_cast<seccomp_notif_resp *>(calloc(1, sizes.seccomp_notif_resp));
+    const auto &table = handler_table();
 
     while (true) {
-        pthread_mutex_lock(&g_servers_mutex);
-        bool running = g_servers[client_pid].running;
-        pthread_mutex_unlock(&g_servers_mutex);
-        if (!running) return;
-
-        // ---- receive one request (+ up to 2 fds) ----
-        union {
-            char buf[CMSG_SPACE(2 * sizeof(int))];
-            struct cmsghdr align;
-        } control{};
-        struct iovec iov = {&req, sizeof req};
-        struct msghdr msg = {};
-        msg.msg_iov = &iov;
-        msg.msg_iovlen = 1;
-        msg.msg_control = control.buf;
-        msg.msg_controllen = sizeof control.buf;
-
-        ssize_t n;
-        do { n = recvmsg(sock, &msg, MSG_CMSG_CLOEXEC); } while (n < 0 && errno == EINTR);
-        if (n <= 0) return;      // client closed the socket (or error): stop serving
-
-        // ---- take ownership of every received fd up front so none can leak ----
-        int rfd[2] = {-1, -1}, nfd = 0;
-        bool too_many_fds = false;
-        for (struct cmsghdr *ch = CMSG_FIRSTHDR(&msg); ch; ch = CMSG_NXTHDR(&msg, ch)) {
-            if (ch->cmsg_level != SOL_SOCKET || ch->cmsg_type != SCM_RIGHTS) continue;
-            size_t count = (ch->cmsg_len - CMSG_LEN(0)) / sizeof(int);
-            for (size_t i = 0; i < count; i++) {
-                int v;
-                memcpy(&v, CMSG_DATA(ch) + i * sizeof(int), sizeof v);
-                if (nfd < 2) {
-                    rfd[nfd++] = v;
-                } else {
-                    close(v);
-                    too_many_fds = true;
-                }
-            }
+        memset(req, 0, sizes.seccomp_notif);
+        if (ioctl(fd, SECCOMP_IOCTL_NOTIF_RECV, req) < 0) {
+            if (errno == EINTR) continue;
+            if (errno == ENOENT) break;
+            perror("NOTIF_RECV");
+            break;
         }
+        if (ioctl(fd, SECCOMP_IOCTL_NOTIF_ID_VALID, &req->id) < 0) continue;
 
-        // ---- validate + unpack ----
-        const struct broker_req_hdr *h = &req.h;
-        bool ok = request_is_valid(h, n, nfd, too_many_fds, msg.msg_flags);
+        memset(resp, 0, sizes.seccomp_notif_resp);
+        resp->id = req->id;
 
-        int64_t res = -EINVAL;
-        c.out_len = 0;
-        c.ret_fd = -1;
-
-        if (ok) {
-            c.h = h;
-            const uint8_t *p = req.data;
-            for (int i = 0; i < 2; i++) {
-                memcpy(c.path[i], p, h->path_len[i]);
-                c.path[i][h->path_len[i]] = 0;
-                if (strlen(c.path[i]) != h->path_len[i]) ok = false;   // embedded NUL
-                p += h->path_len[i];
+        {
+            Ctx ctx(fd, req, resp);
+            if (req->data.arch != AUDIT_ARCH_CURRENT) {
+                ctx.fail(
+                        EPERM);           // fail closed: compat-ABI syscall numbers mean something else
+            } else {
+                auto it = table.find(req->data.nr);
+                if (it == table.end()) ctx.cont();      // unfiltered => CONTINUE
+                else it->second(ctx);
             }
-            c.blob = p;
+        }   // Ctx closes /proc/<tid>/mem here
 
-            int k = 0;
-            for (int slot = 0; slot < 2; slot++)
-                c.fd[slot] = ((h->fdmask >> slot) & 1) ? rfd[k++] : -1;
-
-            if (ok) res = kOps[h->op].fn(&c);
+        if (ioctl(fd, SECCOMP_IOCTL_NOTIF_SEND, resp) < 0 && errno != ENOENT) {
+            perror("NOTIF_SEND");
         }
-
-        // ---- reply ----
-        if (res >= 0 && c.ret_fd < 0 && c.out_len > h->out_cap) res = -EIO;   // handler bug guard
-        reply(sock, res, c.out, res >= 0 ? c.out_len : 0, res >= 0 ? c.ret_fd : -1);
-
-        // ---- cleanup ----
-        if (c.ret_fd >= 0) close(c.ret_fd);
-        for (int i = 0; i < nfd; i++) close(rfd[i]);
     }
+    free(req);
+    free(resp);
 }
 
 /* ========================================================================== */
@@ -790,7 +715,7 @@ static void broker_serve(int sock, pid_t client_pid) {
 /* ========================================================================== */
 extern "C"
 JNIEXPORT void JNICALL
-Java_com_lody_virtual_server_security_SyscallBroker_brokerServe(JNIEnv *env, jobject thiz,
+Java_com_lody_virtual_server_security_SyscallBroker_serverServe(JNIEnv *env, jobject thiz,
                                                                 jint fd, jint pid,
                                                                 jobject sandbox, jstring cwd) {
     jclass cls = env->GetObjectClass(sandbox);
@@ -810,7 +735,7 @@ Java_com_lody_virtual_server_security_SyscallBroker_brokerServe(JNIEnv *env, job
     const char *c_cwd = env->GetStringUTFChars(cwd, nullptr);
     if (c_cwd == nullptr) return;
     size_t len = strlen(c_cwd);
-    if (len > PATH_MAX) {
+    if (len >= PATH_MAX) {
         return;
     }
     memcpy(g_cwd, c_cwd, len + 1);
@@ -832,7 +757,7 @@ Java_com_lody_virtual_server_security_SyscallBroker_brokerServe(JNIEnv *env, job
 }
 extern "C"
 JNIEXPORT void JNICALL
-Java_com_lody_virtual_server_security_SyscallBroker_destroyBroker(JNIEnv *env, jobject thiz,
+Java_com_lody_virtual_server_security_SyscallBroker_serverDestroy(JNIEnv *env, jobject thiz,
                                                                   jint pid) {
     pthread_mutex_lock(&g_servers_mutex);
     auto it = g_servers.find(pid);
