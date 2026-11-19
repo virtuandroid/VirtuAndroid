@@ -65,7 +65,8 @@ void init_log_classes(JNIEnv *env) {
 }
 
 
-typedef void *(*dlopen_func_t)(const char *filename, int flags, const void *extinfo, void *caller_addr);
+typedef void *(*dlopen_func_t)(const char *filename, int flags, const void *extinfo,
+                               void *caller_addr);
 
 static dlopen_func_t orig_dlopen = nullptr;
 
@@ -171,12 +172,14 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
 
 extern "C"
 JNIEXPORT jobject JNICALL
-Java_com_virtualxposed_lsplantbridge_MethodHooker_hookTarget(JNIEnv *env, jobject thiz, jobject target, jobject callback) {
+Java_com_virtualxposed_lsplantbridge_MethodHooker_hookTarget(JNIEnv *env, jobject thiz,
+                                                             jobject target, jobject callback) {
     return lsplant::Hook(env, target, thiz, callback);
 }
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_com_virtualxposed_lsplantbridge_MethodHooker_unhookTarget(JNIEnv *env, jobject thiz, jobject target) {
+Java_com_virtualxposed_lsplantbridge_MethodHooker_unhookTarget(JNIEnv *env, jobject thiz,
+                                                               jobject target) {
     return lsplant::UnHook(env, target);
 }
 

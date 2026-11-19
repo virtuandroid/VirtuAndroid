@@ -45,6 +45,17 @@ class SecuritySettingsActivity : VActivity() {
                     val success = VLoggingClient.get().setFingerprintAction(key)
                     return@OnPreferenceChangeListener success
                 }
+
+
+            val dangerousAction = findPreference<ListPreference>(DANGEROUS_ACTION)
+            dangerousAction?.value = VLoggingClient.get().getDangerousGuestAction()?.toString()
+            dangerousAction?.onPreferenceChangeListener =
+                Preference.OnPreferenceChangeListener { _, k ->
+                    val key = (k as? Int) ?: (k as? String)?.toIntOrNull()
+                    ?: return@OnPreferenceChangeListener false
+                    val success = VLoggingClient.get().setDangerousGuestAction(key)
+                    return@OnPreferenceChangeListener success
+                }
         }
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {}
@@ -88,5 +99,6 @@ class SecuritySettingsActivity : VActivity() {
     companion object {
         private const val DISABLE_SECCOMP = "security_settings_disable_seccomp"
         private const val FINGERPRINT_INCONSISTENT = "advance_settings_fingerprint_action"
+        private const val DANGEROUS_ACTION = "advance_settings_dangerous_action"
     }
 }

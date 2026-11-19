@@ -15,4 +15,12 @@
         android:key="advance_settings_fingerprint_action"
         android:summary="@string/advance_settings_fingerprint_action_summary"
         android:title="@string/advance_settings_fingerprint_action" />
+
+    <ListPreference
+        android:defaultValue="0"
+        android:entries="@array/fingerprint_names"
+        android:entryValues="@array/fingerprint_values"
+        android:key="advance_settings_dangerous_action"
+        android:summary="@string/advance_settings_dangerous_action_summary"
+        android:title="@string/advance_settings_dangerous_action" />
 </PreferenceScreen>

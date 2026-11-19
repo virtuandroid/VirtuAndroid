@@ -9,12 +9,12 @@ import com.virtualxposed.log.client.LogMessage
 import com.virtualxposed.log.server.IVLoggingService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.onFailure
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
@@ -36,6 +36,7 @@ object VLoggingManagerService : IVLoggingService.Stub() {
     fun start() {
         val store = PersistentLogSettingStore.getStore(backingFile) ?: return
         fingerprintAction.update { store.fingerprintAction }
+        dangerousGuestAction.update { store.dangerousGuestAction }
         initLogChannel()
         setupStoreJob()
     }
@@ -43,16 +44,17 @@ object VLoggingManagerService : IVLoggingService.Stub() {
     // Keep writing asynchronously all the time, no waiting on IO
     private val logChannel = Channel<LogMessageHolder>(capacity = Channel.BUFFERED)
     private val fingerprintAction = MutableStateFlow(LOG_ONLY)
+    private val dangerousGuestAction = MutableStateFlow(LOG_ONLY)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     @OptIn(FlowPreview::class)
     private fun setupStoreJob() {
-        fingerprintAction
+        fingerprintAction.combine(dangerousGuestAction) { fingerprint, dangerousAction -> fingerprint to dangerousAction }
             .drop(1) // Drop initial state
             .debounce(500.milliseconds)
-            .onEach { action ->
+            .onEach { (fingerprint, dangerousAction) ->
                 // Currently overengineered, but it is fine since it will need to be expanded in the future
-                val settings = LogSettings(action)
+                val settings = LogSettings(fingerprint, dangerousAction)
                 PersistentLogSettingStore.writeStore(backingFile, settings)
             }
             .launchIn(scope)
@@ -64,7 +66,7 @@ object VLoggingManagerService : IVLoggingService.Stub() {
     }
 
     private fun initLogChannel() {
-        @OptIn(ExperimentalCoroutinesApi::class) val writeDispatcher =
+        val writeDispatcher =
             Dispatchers.IO.limitedParallelism(1)
         CoroutineScope(writeDispatcher).launch {
             for (logItem in logChannel) {
@@ -117,6 +119,13 @@ object VLoggingManagerService : IVLoggingService.Stub() {
         }
 
         val logMessage = logMessageHolder.logMessage
+
+        runCatching {
+            Timber.i("Received log message: ${logMessageHolder.toPrettyJson()}")
+        }.onFailure {
+            Timber.e(it, "Failed to log message")
+        }
+
         if (logMessageHolder.dangerous && logMessage is LogMessage.FingerprintChange) {
             runCatching {
                 val settings = fingerprintLogAction
@@ -168,14 +177,40 @@ object VLoggingManagerService : IVLoggingService.Stub() {
 
                 else -> {}
             }
-        }
 
-        runCatching {
-            Timber.i("Received log message: ${logMessageHolder.toPrettyJson()}")
-        }.onFailure {
-            Timber.e(it, "Failed to log message")
+            runCatching {
+                val settings = dangerousGuestAction.value
+                when (settings) {
+                    TOAST -> {
+                        CoroutineScope(Dispatchers.Main).launch {
+                            Toast.makeText(
+                                VirtualCore.get().context,
+                                "Dangerous app action detected: ${logMessageHolder.logMessage?.logType}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+
+                    KILL_APP -> {
+                        val pkg = logMessageHolder.packageName
+                        val userId = logMessageHolder.userId
+
+                        VActivityManager.get().killAppByPkg(pkg, userId)
+                        CoroutineScope(Dispatchers.Main).launch {
+                            Toast.makeText(
+                                VirtualCore.get().context,
+                                "App killed due to dangerous app action: ${logMessageHolder.logMessage?.logType}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+            }.onFailure {
+                Timber.e(it)
+            }
         }
     }
+
 
     override fun log(message: LogMessage?) {
         if (message == null) {
@@ -194,6 +229,21 @@ object VLoggingManagerService : IVLoggingService.Stub() {
     override fun setFingerprintLogAction(action: Int): Boolean {
         return if (VActivityManager.get().systemPid == VBinder.getCallingUid()) {
             fingerprintAction.update {
+                action
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    override fun getDangerousGuestAction(): Int {
+        return dangerousGuestAction.value
+    }
+
+    override fun setDangerousGuestAction(action: Int): Boolean {
+        return if (VActivityManager.get().systemPid == VBinder.getCallingUid()) {
+            dangerousGuestAction.update {
                 action
             }
             true

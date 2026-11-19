@@ -57,6 +57,41 @@ object VLoggingClient {
         }
     }
 
+
+
+    fun getDangerousGuestAction(): Int? {
+        val attacher = this.attacher
+
+        if (attacher == null) {
+            Timber.e("VLoggingClient is not yet initialized. Action dropped!")
+            throw RuntimeException()
+        }
+
+        return try {
+            attacher.getInterface()?.dangerousGuestAction
+        } catch (e: RemoteException) {
+            Timber.e(e)
+            null
+        }
+    }
+
+    fun setDangerousGuestAction(action: Int): Boolean {
+        val attacher = this.attacher
+
+        if (attacher == null) {
+            Timber.e("VLoggingClient is not yet initialized. Action dropped!")
+            throw RuntimeException()
+        }
+
+        return try {
+            attacher.getInterface()?.setDangerousGuestAction(action) ?: false
+        } catch (e: RemoteException) {
+            Timber.e(e)
+            false
+        }
+    }
+
+
     @JvmStatic
     fun get(): VLoggingClient {
         return this

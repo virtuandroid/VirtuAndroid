@@ -905,7 +905,6 @@ object VActivityManagerService : IActivityManager.Stub() {
     // TODO prevent race conditions safety issues in process creation/death
     override fun getUidByPid(pid: Int): Int {
         if (pid == 0) {
-            // TODO ensure invalid UIDs are handled properly
             return -1 // INVALID_UID
         }
         val myUid = Process.myUid()
@@ -920,8 +919,6 @@ object VActivityManagerService : IActivityManager.Stub() {
             return myUid
         }
         return -1 // INVALID_UID
-        // TODO check what happens to forked processes which may bypass processTable
-        // throw IllegalStateException("No UID found. This should not happen!")
     }
 
     private fun performStartProcess(

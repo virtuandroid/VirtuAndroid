@@ -785,37 +785,41 @@ class VPackageManagerService : IPackageManager.Stub() {
         val flags = updateFlagsNought(flags)
         val callingPackage = VBinder.getCallingPackageName()
 
-        val provider = mProvidersByAuthority[callingPackage]?.get(name)
-            ?: mProvidersByAuthority.firstNotNullOfOrNull {
+
+        val provider = callingPackage?.let { pkg ->
+             mProvidersByAuthority[pkg]?.get(name)
+        } ?: mProvidersByAuthority.firstNotNullOfOrNull {
                 it.value[name]
             }
 
-        if (provider != null) {
-            val ps = provider.owner.mExtras
-            val providerInfo = PackageParserEx.generateProviderInfo(
-                provider,
-                flags,
-                ps.readUserState(userId),
-                userId
-            )
-            if (providerInfo != null) {
-                VLoggingClient.get().log(
-                    GetProvider(
-                        providerInfo.packageName,
-                        provider.getComponentName().className,
-                        providerInfo.exported
-                    )
+        if (provider == null) {
+            return null
+        }
+
+        val ps = provider.owner.mExtras
+        val providerInfo = PackageParserEx.generateProviderInfo(
+            provider,
+            flags,
+            ps.readUserState(userId),
+            userId
+        )
+        if (providerInfo != null) {
+            VLoggingClient.get().log(
+                GetProvider(
+                    providerInfo.packageName,
+                    provider.getComponentName().className,
+                    providerInfo.exported
                 )
-                val p = mPackages[providerInfo.packageName]
+            )
+            val p = mPackages[providerInfo.packageName]
 
-                if (!isProviderAllowed(providerInfo)) {
-                    throw SecurityException("Unable to access non-exported provider in " + providerInfo.packageName + " from " + callingPackage)
-                }
-
-                val settings = p?.mExtras
-                ComponentFixer.fixComponentInfo(settings, providerInfo, userId)
-                return providerInfo
+            if (!isProviderAllowed(providerInfo)) {
+                throw SecurityException("Unable to access non-exported provider in " + providerInfo.packageName + " from " + callingPackage)
             }
+
+            val settings = p?.mExtras
+            ComponentFixer.fixComponentInfo(settings, providerInfo, userId)
+            return providerInfo
         }
         return null
     }

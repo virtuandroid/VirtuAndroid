@@ -84,7 +84,12 @@ class LogMessageHolder private constructor(
                             "base.apk!"
                         )
 
-                    !isSystem && !isBundledCode
+                    // Apps can load so files without an absolute path such as "mapper.ranchu.so"
+                    // which is difficult to resolve to an absolute path
+                    // For now we cannot guarantee that they are dangerous
+                    val isNativeUndeterminedPath = logMessage.codeLoadMethod == LogMessage.CodeLoadMethod.Native && !logMessage.path.startsWith("/")
+
+                    !isSystem && !isBundledCode && !isNativeUndeterminedPath
                 }
                 // Apps should never access each others non-exported services, it breaks the Android Sandbox
                 // TODO Add permission checks?
@@ -168,12 +173,6 @@ class LogMessageHolder private constructor(
                     VectorManagerService.get().getManagerServer()?.methodRewriteAllowed?.contains(
                         logMessage.modulePackage
                     ) != true
-                }
-
-                // Very few apps need to run shell commands.
-                // Assume they are dangerous by default.
-                is LogMessage.Exec -> {
-                    true
                 }
 
                 else -> false

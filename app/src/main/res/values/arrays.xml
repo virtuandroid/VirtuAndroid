@@ -12,4 +12,18 @@
         <item>1</item>
         <item>2</item>
     </string-array>
+
+
+    <string-array name="dangerous_action_names">
+        <item>@string/advance_settings_log</item>
+        <item>@string/advance_settings_toast</item>
+        <item>@string/advance_settings_kill</item>
+    </string-array>
+
+    <!-- Make sure these are consistent with IVLoggingService!-->
+    <string-array name="dangerous_action_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
 </resources>

@@ -9,7 +9,8 @@ import java.io.File
 @SuppressLint("UnsafeOptInUsageError")
 @Serializable
 data class LogSettings(
-    val fingerprintAction: Int = IVLoggingService.LOG_ONLY
+    val fingerprintAction: Int = IVLoggingService.LOG_ONLY,
+    val dangerousGuestAction: Int = IVLoggingService.LOG_ONLY
 )
 
 object PersistentLogSettingStore : GenericStore<LogSettings>(LogSettings.serializer())  {

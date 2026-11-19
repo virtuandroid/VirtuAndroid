@@ -3,8 +3,6 @@ package com.lody.virtual.client
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
-import android.os.Process
-import android.os.UserHandle
 import android.provider.Settings
 import androidx.annotation.WorkerThread
 import com.virtualxposed.log.client.LogMessage
@@ -149,9 +147,14 @@ class FingerprintListener(val context: Context) {
     @WorkerThread
     private fun check() {
         val newFingerprint = getFingerprint(context)
-        val fields = lastFingerprint?.diff(newFingerprint)?.keys ?: emptySet()
-        if (fields.isNotEmpty()) {
-            VLoggingClient.get().log(LogMessage.FingerprintChange(fields))
+        val fields = lastFingerprint?.diff(newFingerprint)
+            // Ignore uninitialized values
+            // This is because values such as androidId cannot be fetched at startup.
+            ?.filterNot { it.value.first == null && it.value.second != null }
+
+        val set = fields?.keys?.toSet() ?: emptySet()
+        if (set.isNotEmpty()) {
+            VLoggingClient.get().log(LogMessage.FingerprintChange(set))
         }
         lastFingerprint = newFingerprint
     }
