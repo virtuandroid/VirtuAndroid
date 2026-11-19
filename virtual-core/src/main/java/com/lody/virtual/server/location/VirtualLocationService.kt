@@ -16,7 +16,7 @@ import com.lody.virtual.server.security.SecurityUtils.enforceCallingUser
 /**
  * @author Lody
  */
-class VirtualLocationService private constructor() : IVirtualLocationManager.Stub() {
+object VirtualLocationService : IVirtualLocationManager.Stub() {
     private val mLocConfigs: SparseArray<MutableMap<String, VLocConfig>> = SparseArray()
     private val mGlobalConfig = VLocConfig()
 
@@ -96,9 +96,14 @@ class VirtualLocationService private constructor() : IVirtualLocationManager.Stu
                 while (size-- > 0) {
                     val userId = p.readInt()
                     val packages = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        p.readHashMap( javaClass.classLoader, String::class.java, VLocConfig::class.java)
+                        p.readHashMap(
+                            javaClass.classLoader,
+                            String::class.java,
+                            VLocConfig::class.java
+                        )
                     } else {
-                        p.readHashMap(javaClass.getClassLoader())?.toMutableMap() as? MutableMap<String, VLocConfig>
+                        p.readHashMap(javaClass.getClassLoader())
+                            ?.toMutableMap() as? MutableMap<String, VLocConfig>
                     }
                     mLocConfigs.put(userId, packages)
                 }
@@ -271,15 +276,12 @@ class VirtualLocationService private constructor() : IVirtualLocationManager.Stu
         return mGlobalConfig.location
     }
 
-    companion object {
-        private val sInstance = VirtualLocationService()
-        private const val MODE_CLOSE = 0
-        private const val MODE_USE_GLOBAL = 1
-        private const val MODE_USE_SELF = 2
+    private const val MODE_CLOSE = 0
+    private const val MODE_USE_GLOBAL = 1
+    private const val MODE_USE_SELF = 2
 
-        @JvmStatic
-        fun get(): VirtualLocationService {
-            return sInstance
-        }
+    @JvmStatic
+    fun get(): VirtualLocationService {
+        return this
     }
 }

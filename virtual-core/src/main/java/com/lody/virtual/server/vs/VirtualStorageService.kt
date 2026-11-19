@@ -10,7 +10,7 @@ import com.lody.virtual.server.security.SecurityUtils.enforceCallingUser
 /**
  * @author Lody
  */
-class VirtualStorageService private constructor() : IVirtualStorageService.Stub() {
+object VirtualStorageService : IVirtualStorageService.Stub() {
     private val mLayer = VSPersistenceLayer(this)
     val configs: SparseArray<HashMap<String, VSConfig>> = SparseArray()
 
@@ -87,12 +87,9 @@ class VirtualStorageService private constructor() : IVirtualStorageService.Stub(
         check(VUserManagerService.get().exists(userId)) { "Invalid userId $userId" }
     }
 
-    companion object {
-        private val sService = VirtualStorageService()
 
-        @JvmStatic
-        fun get(): VirtualStorageService {
-            return sService
-        }
+    @JvmStatic
+    fun get(): VirtualStorageService {
+        return this
     }
 }

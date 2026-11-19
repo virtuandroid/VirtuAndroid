@@ -16,7 +16,7 @@ import com.lody.virtual.helper.collection.SparseArray
 import com.lody.virtual.helper.utils.VLog
 import com.lody.virtual.os.VUserHandle
 import com.lody.virtual.IntentHelper.INTENT_USER_ID
-import com.lody.virtual.server.job.VJobSchedulerService.Companion.get
+import com.lody.virtual.server.job.VJobSchedulerService
 
 /**
  * @author Lody
@@ -33,7 +33,7 @@ class StubJob : Service() {
             val jobId = jobParams.jobId
             val binder = mirror.android.app.job.JobParameters.callback.get(jobParams)
             val callback = IJobCallback.Stub.asInterface(binder)
-            val entry = get().findJobByVirtualJobId(jobId)
+            val entry = VJobSchedulerService.get().findJobByVirtualJobId(jobId)
             if (entry == null) {
                 emptyCallback(callback, jobId)
                 mScheduler!!.cancel(jobId)
@@ -65,7 +65,7 @@ class StubJob : Service() {
                         } else {
                             emptyCallback(callback, jobId)
                             mScheduler!!.cancel(jobId)
-                            get().cancel(jobId)
+                            VJobSchedulerService.get().cancel(jobId)
                         }
                     }
                 }

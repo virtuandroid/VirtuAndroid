@@ -53,7 +53,7 @@ import kotlin.math.abs
 /**
  * @author Lody
  */
-class VAccountManagerService : IAccountManager.Stub() {
+object VAccountManagerService : IAccountManager.Stub() {
     // TODO check visibility
     // TODO remove accounts on app uninstall
     private val accountTable: MutableStateFlow<VAccountTable> =
@@ -1108,7 +1108,7 @@ class VAccountManagerService : IAccountManager.Stub() {
             HashMap()
     }
 
-    private abstract inner class Session @JvmOverloads constructor(
+    private abstract class Session @JvmOverloads constructor(
         response: IAccountManagerResponse?,
         userId: Int,
         info: AuthenticatorInfo,
@@ -1381,7 +1381,7 @@ class VAccountManagerService : IAccountManager.Stub() {
         }
     }
 
-    private inner class GetAccountsByTypeAndFeatureSession(
+    private class GetAccountsByTypeAndFeatureSession(
         response: IAccountManagerResponse?,
         userId: Int,
         info: AuthenticatorInfo,
@@ -1480,57 +1480,52 @@ class VAccountManagerService : IAccountManager.Stub() {
         }
     }
 
-    companion object {
-        private val sInstance = AtomicReference<VAccountManagerService>()
-        private const val CHECK_IN_TIME = 30 * 24 * 60 * 1000L
+    private const val CHECK_IN_TIME = 30 * 24 * 60 * 1000L
 
-        @JvmStatic
-        fun get(): VAccountManagerService {
-            return sInstance.get()
-        }
+    @JvmStatic
+    fun get(): VAccountManagerService {
+        return this
+    }
 
-        @JvmStatic
-        fun systemReady() {
-            val service = VAccountManagerService()
-            service.readAllAccounts()
-            sInstance.set(service)
-        }
+    @JvmStatic
+    fun systemReady() {
+        this.readAllAccounts()
+    }
 
 
-        private fun parseAuthenticatorDescription(
-            resources: Resources, packageName: String?,
-            attributeSet: AttributeSet?
-        ): AuthenticatorDescription? {
-            val array = resources.obtainAttributes(
-                attributeSet,
-                R_Hide.styleable.AccountAuthenticator.get()
+    private fun parseAuthenticatorDescription(
+        resources: Resources, packageName: String?,
+        attributeSet: AttributeSet?
+    ): AuthenticatorDescription? {
+        val array = resources.obtainAttributes(
+            attributeSet,
+            R_Hide.styleable.AccountAuthenticator.get()
+        )
+        try {
+            val accountType =
+                array.getString(R_Hide.styleable.AccountAuthenticator_accountType.get())
+            val label =
+                array.getResourceId(R_Hide.styleable.AccountAuthenticator_label.get(), 0)
+            val icon = array.getResourceId(R_Hide.styleable.AccountAuthenticator_icon.get(), 0)
+            val smallIcon =
+                array.getResourceId(R_Hide.styleable.AccountAuthenticator_smallIcon.get(), 0)
+            val accountPreferences = array.getResourceId(
+                R_Hide.styleable.AccountAuthenticator_accountPreferences.get(),
+                0
             )
-            try {
-                val accountType =
-                    array.getString(R_Hide.styleable.AccountAuthenticator_accountType.get())
-                val label =
-                    array.getResourceId(R_Hide.styleable.AccountAuthenticator_label.get(), 0)
-                val icon = array.getResourceId(R_Hide.styleable.AccountAuthenticator_icon.get(), 0)
-                val smallIcon =
-                    array.getResourceId(R_Hide.styleable.AccountAuthenticator_smallIcon.get(), 0)
-                val accountPreferences = array.getResourceId(
-                    R_Hide.styleable.AccountAuthenticator_accountPreferences.get(),
-                    0
-                )
-                val customTokens = array.getBoolean(
-                    R_Hide.styleable.AccountAuthenticator_customTokens.get(),
-                    false
-                )
-                if (TextUtils.isEmpty(accountType)) {
-                    return null
-                }
-                return AuthenticatorDescription(
-                    accountType, packageName, label, icon, smallIcon, accountPreferences,
-                    customTokens
-                )
-            } finally {
-                array.recycle()
+            val customTokens = array.getBoolean(
+                R_Hide.styleable.AccountAuthenticator_customTokens.get(),
+                false
+            )
+            if (TextUtils.isEmpty(accountType)) {
+                return null
             }
+            return AuthenticatorDescription(
+                accountType, packageName, label, icon, smallIcon, accountPreferences,
+                customTokens
+            )
+        } finally {
+            array.recycle()
         }
     }
 }

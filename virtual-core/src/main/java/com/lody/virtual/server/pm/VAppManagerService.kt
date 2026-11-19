@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * @author Lody
  */
-class VAppManagerService : IAppManager.Stub() {
+object VAppManagerService : IAppManager.Stub() {
     private val mUidSystem = UidSystem()
     private val mPersistenceLayer = PackagePersistenceLayer(this)
     private val mVisibleOutsidePackages: MutableSet<String> = HashSet()
@@ -64,7 +64,7 @@ class VAppManagerService : IAppManager.Stub() {
     }
 
     private fun cleanUpResidualFiles(ps: PackageSetting) {
-        VLog.w(TAG, "cleanUpResidualFiles: " + ps.packageName)
+        Timber.w("cleanUpResidualFiles: %s", ps.packageName)
         val dataAppDir = VEnvironment.getDataAppPackageDirectory(ps.packageName)
         FileUtils.deleteDir(dataAppDir)
 
@@ -649,7 +649,7 @@ class VAppManagerService : IAppManager.Stub() {
 
 
     fun restoreFactoryState() {
-        VLog.w(TAG, "Warning: Restore the factory state...")
+        Timber.w("Warning: Restore the factory state...")
         VEnvironment.getDalvikCacheDirectory().delete()
         VEnvironment.getUserSystemDirectory().delete()
         VEnvironment.getDataAppDirectory().delete()
@@ -659,21 +659,15 @@ class VAppManagerService : IAppManager.Stub() {
         mPersistenceLayer.save()
     }
 
-    companion object {
-        private val TAG: String = VAppManagerService::class.java.getSimpleName()
-        private val sService = AtomicReference<VAppManagerService>()
 
-        @JvmStatic
-        fun get(): VAppManagerService {
-            return sService.get()
-        }
+    @JvmStatic
+    fun get(): VAppManagerService {
+        return this
+    }
 
-        @JvmStatic
-        fun systemReady() {
-            VEnvironment.systemReady()
-            val instance = VAppManagerService()
-            instance.mUidSystem.initUidList()
-            sService.set(instance)
-        }
+    @JvmStatic
+    fun systemReady() {
+        VEnvironment.systemReady()
+        this.mUidSystem.initUidList()
     }
 }

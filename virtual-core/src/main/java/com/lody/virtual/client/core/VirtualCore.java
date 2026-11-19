@@ -216,17 +216,6 @@ public final class VirtualCore {
             hostPkgInfo = unHookPackageManager.getPackageInfo(packageName, PackageManager.GET_PROVIDERS);
             detectProcessType();
 
-            // We want to know which the main process is before guest apps can be started
-            // This is only relevant for the server process, since the host pid is used for security verification
-            if (VirtualCore.get().isServerProcess()) {
-                ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
-                for (ActivityManager.RunningAppProcessInfo info : am.getRunningAppProcesses()) {
-                    if (info.processName.equals(VirtualCore.get().getMainProcessName())) {
-                        VActivityManagerService.setMainPid(info.pid);
-                    }
-                }
-            }
-
             InvocationStubManager invocationStubManager = InvocationStubManager.getInstance();
             invocationStubManager.init();
             invocationStubManager.injectAll();

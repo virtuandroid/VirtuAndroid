@@ -24,7 +24,7 @@ import kotlin.math.max
 /**
  * @author Lody
  */
-class VJobSchedulerService private constructor() : IJobScheduler.Stub() {
+object VJobSchedulerService : IJobScheduler.Stub() {
     private val mJobStore = ConcurrentHashMap<JobId, JobConfig>()
     private var mGlobalJobId = 0
 
@@ -297,18 +297,10 @@ class VJobSchedulerService private constructor() : IJobScheduler.Stub() {
         }
     }
 
-    companion object {
-        private const val JOB_FILE_VERSION = 1
-        private val gDefault: Singleton<VJobSchedulerService> =
-            object : Singleton<VJobSchedulerService>() {
-                override fun create(): VJobSchedulerService {
-                    return VJobSchedulerService()
-                }
-            }
+    private const val JOB_FILE_VERSION = 1
 
-        @JvmStatic
-        fun get(): VJobSchedulerService {
-            return gDefault.get()
-        }
+    @JvmStatic
+    fun get(): VJobSchedulerService {
+        return this
     }
 }

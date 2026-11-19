@@ -51,7 +51,6 @@ import com.lody.virtual.helper.compat.ApplicationThreadCompat
 import com.lody.virtual.helper.compat.BundleCompat
 import com.lody.virtual.helper.compat.IApplicationThreadCompat
 import com.lody.virtual.helper.utils.ComponentUtils
-import com.lody.virtual.helper.utils.VLog
 import com.lody.virtual.os.VBinder
 import com.lody.virtual.os.VUserHandle
 import com.lody.virtual.remote.AppTaskInfo
@@ -84,12 +83,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import mirror.android.app.IServiceConnectionO
 import timber.log.Timber
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * @author Lody
  */
-class VActivityManagerService : IActivityManager.Stub() {
+object VActivityManagerService : IActivityManager.Stub() {
     private val pidLock = Any()
     private val processTable = MutableStateFlow(ProcessTable.EMPTY)
     private val history = MutableStateFlow(persistentSetOf<ServiceRecord>())
@@ -102,7 +100,6 @@ class VActivityManagerService : IActivityManager.Stub() {
 
     fun onCreate(context: Context) {
         AttributeCache.init(context)
-        sService.set(this)
         val pm = context.packageManager
         val packageInfo = runCatching {
             pm.getPackageInfo(
@@ -195,8 +192,14 @@ class VActivityManagerService : IActivityManager.Stub() {
         return VirtualCore.get().myUid()
     }
 
+
     fun getMainPid(): Int? {
-        return mainPid
+        runCatching {
+            // runningAppProcesses is not spoofable
+            // TODO cache until death?
+            return am.runningAppProcesses.firstOrNull { it.processName == "${VirtualCore.get().hostPkg}:main" }?.pid
+        }
+        return null
     }
 
     override fun onActivityCreated(
@@ -339,9 +342,8 @@ class VActivityManagerService : IActivityManager.Stub() {
         )
 
         if (targetApp == null) {
-            VLog.e(
-                TAG,
-                "Unable to start new Process for : " + ComponentUtils.toComponentName(serviceInfo)
+            Timber.e(
+                "Unable to start new Process for : %s", ComponentUtils.toComponentName(serviceInfo)
             )
             return null
         }
@@ -914,7 +916,7 @@ class VActivityManagerService : IActivityManager.Stub() {
         if (r != null) {
             return r.vuid
         }
-        if (pid == mainPid || pid == Process.myPid()) {
+        if (pid == getMainPid() || pid == Process.myPid()) {
             return myUid
         }
         return -1 // INVALID_UID
@@ -1152,7 +1154,7 @@ class VActivityManagerService : IActivityManager.Stub() {
             return false
         }
         if (userId < 0) {
-            VLog.w(TAG, "Sent a broadcast without userId $realIntent")
+            Timber.w("Sent a broadcast without userId $realIntent")
             return false
         }
         val vuid = VUserHandle.getUid(userId, appId)
@@ -1288,42 +1290,31 @@ class VActivityManagerService : IActivityManager.Stub() {
         return 0
     }
 
-    companion object {
-        @Volatile
-        private var mainPid: Int? = null
-        private val sService = AtomicReference<VActivityManagerService>()
-        private val TAG: String = VActivityManagerService::class.java.getSimpleName()
 
-        @JvmStatic
-        fun get(): VActivityManagerService {
-            return sService.get()
-        }
+    @JvmStatic
+    fun get(): VActivityManagerService {
+        return this
+    }
 
-        @JvmStatic
-        fun systemReady(context: Context) {
-            VActivityManagerService().onCreate(context)
-        }
+    @JvmStatic
+    fun systemReady(context: Context) {
+        this.onCreate(context)
+    }
 
-        @JvmStatic
-        fun setMainPid(pid: Int) {
-            mainPid = pid
-        }
-
-        private fun resolveServiceInfo(service: Intent?, userId: Int): ServiceInfo? {
-            if (service != null) {
-                val serviceInfo = VirtualCore.get().resolveServiceInfo(service, userId)
-                if (serviceInfo != null) {
-                    return serviceInfo
-                }
+    private fun resolveServiceInfo(service: Intent?, userId: Int): ServiceInfo? {
+        if (service != null) {
+            val serviceInfo = VirtualCore.get().resolveServiceInfo(service, userId)
+            if (serviceInfo != null) {
+                return serviceInfo
             }
-            return null
         }
+        return null
+    }
 
-        private fun isStartProcessForBroadcast(
-            processName: String?,
-            packageName: String?
-        ): Boolean {
-            return Constants.PRIVILEGE_APP.contains(packageName)
-        }
+    private fun isStartProcessForBroadcast(
+        processName: String?,
+        packageName: String?
+    ): Boolean {
+        return Constants.PRIVILEGE_APP.contains(packageName)
     }
 }

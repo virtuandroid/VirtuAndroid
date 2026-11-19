@@ -15,7 +15,7 @@ import kotlin.random.Random
  * @author Lody
  */
 @Suppress("DEPRECATION")
-class VDeviceManagerService : IDeviceInfoManager.Stub() {
+object VDeviceManagerService : IDeviceInfoManager.Stub() {
     val deviceInfos: MutableMap<Int, VDeviceInfo> = mutableMapOf()
     private val mPersistenceLayer = DeviceInfoPersistenceLayer(this)
     private val mPool = UsedDeviceInfoPool()
@@ -137,43 +137,41 @@ class VDeviceManagerService : IDeviceInfoManager.Stub() {
         return info
     }
 
-    companion object {
-        private val sInstance = VDeviceManagerService()
 
-        @JvmStatic
-        fun get(): VDeviceManagerService {
-            return sInstance
-        }
+    @JvmStatic
+    fun get(): VDeviceManagerService {
+        return this
+    }
 
-        private fun generate10(length: Int): String {
-            return buildString(length) {
-                repeat(length) {
-                    append("0123456789".random())
-                }
+    private fun generate10(length: Int): String {
+        return buildString(length) {
+            repeat(length) {
+                append("0123456789".random())
             }
-        }
-
-        private fun generate16(length: Int): String {
-            return buildString(length) {
-                repeat(length) {
-                    append("0123456789abcdef".random())
-                }
-            }
-        }
-
-        // Random MAC address such as ac:bd:e1:f7:63:d4
-        private fun generateMac(): String =
-            (1..6)
-                .joinToString(":") {
-                    "%02x".format(Random.nextInt(256))
-                }
-
-        @SuppressLint("HardwareIds")
-        private fun generateSerial(): String {
-            return (Build.SERIAL.takeUnless { it.isNullOrEmpty() } ?: "0123456789ABCDEF")
-                .toList()
-                .shuffled()
-                .joinToString("")
         }
     }
+
+    private fun generate16(length: Int): String {
+        return buildString(length) {
+            repeat(length) {
+                append("0123456789abcdef".random())
+            }
+        }
+    }
+
+    // Random MAC address such as ac:bd:e1:f7:63:d4
+    private fun generateMac(): String =
+        (1..6)
+            .joinToString(":") {
+                "%02x".format(Random.nextInt(256))
+            }
+
+    @SuppressLint("HardwareIds")
+    private fun generateSerial(): String {
+        return (Build.SERIAL.takeUnless { it.isNullOrEmpty() } ?: "0123456789ABCDEF")
+            .toList()
+            .shuffled()
+            .joinToString("")
+    }
+
 }
