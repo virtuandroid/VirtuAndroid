@@ -14,6 +14,7 @@ import com.lody.virtual.IntentHelper.BUNDLE_SYSCALL_NOTIF_FD
 import com.lody.virtual.IntentHelper.BUNDLE_VUID
 import com.lody.virtual.client.VClientImpl
 import com.lody.virtual.client.core.VirtualCore
+import com.lody.virtual.client.ipc.VirtualSettingsManager
 import com.lody.virtual.helper.compat.BundleCompat
 import com.lody.virtual.server.security.SecurityUtils
 import com.lody.virtual.server.security.SyscallBroker
@@ -68,7 +69,7 @@ open class StubCP : ContentProvider() {
         val token = BundleCompat.getBinder(extras, BUNDLE_BINDER)
         val vuid = extras?.getInt(BUNDLE_VUID) ?: return null
 
-        val seccompEnabled = VirtualCore.get().isSeccompEnabled
+        val seccompEnabled = VirtualSettingsManager.getSeccompEnabled()
         if (seccompEnabled) {
             val initResult = SyscallBroker.initClient()
             if (initResult < 1) {

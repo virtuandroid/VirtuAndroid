@@ -43,6 +43,7 @@ import com.lody.virtual.client.env.Constants.EXTRA_USER_HANDLE
 import com.lody.virtual.client.env.SpecialComponentList
 import com.lody.virtual.client.ipc.ProviderCall
 import com.lody.virtual.client.ipc.VNotificationManager
+import com.lody.virtual.client.ipc.VirtualSettingsManager
 import com.lody.virtual.client.stub.StubCP.Companion.VA_CLOSE_FD
 import com.lody.virtual.client.stub.StubCP.Companion.VA_INIT_PROCESS_METHOD
 import com.lody.virtual.client.stub.VASettings
@@ -929,7 +930,7 @@ object VActivityManagerService : IActivityManager.Stub() {
     ): ProcessRecord? {
         val app = ProcessRecord(info, processName, vuid, vpid)
         val extras = Bundle()
-        val seccompEnabled = VirtualCore.get().isSeccompEnabled
+        val seccompEnabled = VirtualSettingsManager.get().getSeccompEnabled()
 
         BundleCompat.putBinder(extras, BUNDLE_BINDER, app)
         extras.putInt(BUNDLE_VUID, vuid)

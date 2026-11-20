@@ -18,9 +18,17 @@
 
     <ListPreference
         android:defaultValue="0"
-        android:entries="@array/fingerprint_names"
-        android:entryValues="@array/fingerprint_values"
+        android:entries="@array/dangerous_action_names"
+        android:entryValues="@array/dangerous_action_values"
         android:key="advance_settings_dangerous_action"
         android:summary="@string/advance_settings_dangerous_action_summary"
         android:title="@string/advance_settings_dangerous_action" />
+
+    <ListPreference
+        android:defaultValue="0"
+        android:entries="@array/service_hardening_policy_names"
+        android:entryValues="@array/service_hardening_policy_values"
+        android:key="advance_settings_service_policy"
+        android:summary="@string/advance_settings_service_policy_summary"
+        android:title="@string/advance_settings_service_policy" />
 </PreferenceScreen>

@@ -197,9 +197,17 @@
     <string name="advance_settings_dangerous_action">Dangerous action policy</string>
     <string name="advance_settings_dangerous_action_summary">Manage host actions when a dangerous action is detected in a guest process. The danger detection may trigger on false positives.</string>
 
+    <string name="advance_settings_service_policy">Service security policy</string>
+    <string name="advance_settings_service_policy_summary">Manage the security of VirtualXposed system services.</string>
+
     <string name="advance_settings_log">Send log message</string>
     <string name="advance_settings_toast">Show toast</string>
     <string name="advance_settings_kill">Kill guest app</string>
+
+    <string name="security_settings_policy_none">None</string>
+    <string name="security_settings_policy_transparent_hardening">Transparent hardening</string>
+    <string name="security_settings_policy_strict_hardening">Strict hardening</string>
+
     <string name="prepare_xposed_installer">Preparing Xposed environment, please wait…</string>
     <string name="settings_file_manage_text">File Manager</string>
     <string name="install_file_manager_tips">File Manager is supported by Amaze File Manager, download(about 3M) and install it now?</string>

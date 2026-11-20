@@ -71,9 +71,25 @@ object VirtualSettingsManager {
         }
     }
 
-    fun getSeccompEnabled(): Boolean{
+    fun getSeccompEnabled(): Boolean {
         return try {
             getInterface()!!.seccompEnabled
+        } catch (e: RemoteException) {
+            VirtualRuntime.crash(e)
+        }
+    }
+
+    fun getServicePolicy(): Int {
+        return try {
+            getInterface()!!.servicePolicy
+        } catch (e: RemoteException) {
+            VirtualRuntime.crash(e)
+        }
+    }
+
+    fun setServicePolicy(action: Int): Boolean {
+        return try {
+            getInterface()!!.setServicePolicy(action)
         } catch (e: RemoteException) {
             VirtualRuntime.crash(e)
         }

@@ -4,8 +4,8 @@ import android.widget.Toast
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.client.ipc.VActivityManager
 import com.lody.virtual.remote.logging.LogMessageHolder
-import com.lody.virtual.server.IVirtualSettingsManager.KILL_APP
-import com.lody.virtual.server.IVirtualSettingsManager.TOAST
+import com.lody.virtual.server.IVirtualSettingsManager.ACTION_KILL_APP
+import com.lody.virtual.server.IVirtualSettingsManager.ACTION_TOAST
 import com.lody.virtual.server.settings.VirtualSettingsService
 import com.virtualxposed.log.client.LogMessage
 import com.virtualxposed.log.server.IVLoggingService
@@ -97,7 +97,7 @@ object VLoggingManagerService : IVLoggingService.Stub() {
             runCatching {
                 val settings = VirtualSettingsService.get().fingerprintLogAction
                 when (settings) {
-                    TOAST -> {
+                    ACTION_TOAST -> {
                         CoroutineScope(Dispatchers.Main).launch {
                             Toast.makeText(
                                 VirtualCore.get().context,
@@ -107,7 +107,7 @@ object VLoggingManagerService : IVLoggingService.Stub() {
                         }
                     }
 
-                    KILL_APP -> {
+                   ACTION_KILL_APP -> {
                         val pkg = logMessageHolder.packageName
                         val userId = logMessageHolder.userId
 
@@ -148,7 +148,7 @@ object VLoggingManagerService : IVLoggingService.Stub() {
             runCatching {
                 val settings = VirtualSettingsService.get().dangerousGuestAction
                 when (settings) {
-                    TOAST -> {
+                    ACTION_TOAST -> {
                         CoroutineScope(Dispatchers.Main).launch {
                             Toast.makeText(
                                 VirtualCore.get().context,
@@ -158,7 +158,7 @@ object VLoggingManagerService : IVLoggingService.Stub() {
                         }
                     }
 
-                    KILL_APP -> {
+                    ACTION_KILL_APP -> {
                         val pkg = logMessageHolder.packageName
                         val userId = logMessageHolder.userId
 

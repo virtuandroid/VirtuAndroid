@@ -9,7 +9,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
@@ -88,6 +87,18 @@ object VirtualSettingsService : IVirtualSettingsManager.Stub() {
         return onlyAllowSystem {
             settings.update {
                 it.copy(seccompEnabled = enabled)
+            }
+        }
+    }
+
+    override fun getServicePolicy(): Int {
+        return settings.value.servicePolicy
+    }
+
+    override fun setServicePolicy(policy: Int): Boolean {
+        return onlyAllowSystem {
+            settings.update {
+                it.copy(servicePolicy = policy)
             }
         }
     }

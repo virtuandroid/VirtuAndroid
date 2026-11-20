@@ -6,7 +6,7 @@
         <item>@string/advance_settings_kill</item>
     </string-array>
 
-    <!-- Make sure these are consistent with IVLoggingService!-->
+    <!-- Make sure these are consistent with IVirtualSettingsManager!-->
     <string-array name="fingerprint_values">
         <item>0</item>
         <item>1</item>
@@ -20,10 +20,24 @@
         <item>@string/advance_settings_kill</item>
     </string-array>
 
-    <!-- Make sure these are consistent with IVLoggingService!-->
+    <!-- Make sure these are consistent with IVirtualSettingsManager!-->
     <string-array name="dangerous_action_values">
         <item>0</item>
         <item>1</item>
         <item>2</item>
     </string-array>
+
+    <string-array name="service_hardening_policy_names">
+        <item>@string/security_settings_policy_none</item>
+        <item>@string/security_settings_policy_transparent_hardening</item>
+        <item>@string/security_settings_policy_strict_hardening</item>
+    </string-array>
+
+    <!-- Make sure these are consistent with IVirtualSettingsManager!-->
+    <string-array name="service_hardening_policy_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
+
 </resources>

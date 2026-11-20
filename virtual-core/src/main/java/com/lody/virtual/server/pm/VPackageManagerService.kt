@@ -35,6 +35,7 @@ import com.lody.virtual.server.pm.parser.VPackage.PermissionComponent
 import com.lody.virtual.server.pm.parser.VPackage.PermissionGroupComponent
 import com.lody.virtual.server.pm.parser.VPackage.ProviderComponent
 import com.lody.virtual.server.pm.parser.VPackage.ServiceComponent
+import com.lody.virtual.server.security.SecurityUtils
 import com.lody.virtual.server.security.SecurityUtils.enforceCallingUser
 import com.lody.virtual.server.security.SecurityUtils.isActivityAllowed
 import com.lody.virtual.server.security.SecurityUtils.isProviderAllowed
@@ -258,7 +259,7 @@ class VPackageManagerService : IPackageManager.Stub() {
                 VLoggingManagerService.get().log(holder)
 
                 if (!isActivityAllowed(activityInfo)) {
-                    throw SecurityException("Activity not accessible from calling package!")
+                    SecurityUtils.throwSecurityException("Activity not accessible from calling package!")
                 }
 
                 ComponentFixer.fixComponentInfo(ps, activityInfo, userId)
@@ -313,7 +314,7 @@ class VPackageManagerService : IPackageManager.Stub() {
                 VLoggingManagerService.get().log(holder)
 
                 if (!isActivityAllowed(receiverInfo)) {
-                    throw SecurityException("Unable to access non-exported receiver in " + p.packageName + " from " + callingPackage)
+                    SecurityUtils.throwSecurityException("Unable to access non-exported receiver in " + p.packageName + " from " + callingPackage)
                 }
 
                 ComponentFixer.fixComponentInfo(ps, receiverInfo, userId)
@@ -352,7 +353,7 @@ class VPackageManagerService : IPackageManager.Stub() {
                 VLoggingManagerService.get().log(holder)
 
                 if (!isServiceAllowed(serviceInfo)) {
-                    throw SecurityException("Unable to access non-exported service in " + p.packageName + " from " + callingPackage)
+                    SecurityUtils.throwSecurityException("Unable to access non-exported service in " + p.packageName + " from " + callingPackage)
                 }
 
                 ComponentFixer.fixComponentInfo(ps, serviceInfo, userId)
@@ -390,7 +391,7 @@ class VPackageManagerService : IPackageManager.Stub() {
                 )
 
                 if (!isProviderAllowed(providerInfo)) {
-                    throw SecurityException("Unable to access non-exported provider in " + p.packageName + " from " + callingPackage)
+                    SecurityUtils.throwSecurityException("Unable to access non-exported provider in " + p.packageName + " from " + callingPackage)
                 }
                 ComponentFixer.fixComponentInfo(ps, providerInfo, userId)
                 return providerInfo
@@ -785,7 +786,6 @@ class VPackageManagerService : IPackageManager.Stub() {
         val flags = updateFlagsNought(flags)
         val callingPackage = VBinder.getCallingPackageName()
 
-
         val provider = callingPackage?.let { pkg ->
              mProvidersByAuthority[pkg]?.get(name)
         } ?: mProvidersByAuthority.firstNotNullOfOrNull {
@@ -814,7 +814,7 @@ class VPackageManagerService : IPackageManager.Stub() {
             val p = mPackages[providerInfo.packageName]
 
             if (!isProviderAllowed(providerInfo)) {
-                throw SecurityException("Unable to access non-exported provider in " + providerInfo.packageName + " from " + callingPackage)
+                SecurityUtils.throwSecurityException("Unable to access non-exported provider in " + providerInfo.packageName + " from " + callingPackage)
             }
 
             val settings = p?.mExtras

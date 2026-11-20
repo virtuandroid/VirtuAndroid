@@ -62,6 +62,16 @@ class SecuritySettingsActivity : VActivity() {
                     val success = VirtualSettingsManager.get().setDangerousGuestAction(key)
                     return@OnPreferenceChangeListener success
                 }
+
+            val servicePolicy = findPreference<ListPreference>(SERVICE_POLICY)
+            servicePolicy?.value = VirtualSettingsManager.get().getServicePolicy().toString()
+            servicePolicy?.onPreferenceChangeListener =
+                Preference.OnPreferenceChangeListener { _, k ->
+                    val key = (k as? Int) ?: (k as? String)?.toIntOrNull()
+                    ?: return@OnPreferenceChangeListener false
+                    val success = VirtualSettingsManager.get().setServicePolicy(key)
+                    return@OnPreferenceChangeListener success
+                }
         }
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {}
@@ -106,5 +116,6 @@ class SecuritySettingsActivity : VActivity() {
         private const val ENABLE_SECCOMP = "security_settings_enable_seccomp"
         private const val FINGERPRINT_INCONSISTENT = "advance_settings_fingerprint_action"
         private const val DANGEROUS_ACTION = "advance_settings_dangerous_action"
+        private const val SERVICE_POLICY = "advance_settings_service_policy"
     }
 }

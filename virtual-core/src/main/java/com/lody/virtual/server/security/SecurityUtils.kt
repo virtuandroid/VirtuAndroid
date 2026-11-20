@@ -5,11 +5,22 @@ import android.content.pm.PackageManager
 import android.content.pm.ProviderInfo
 import android.content.pm.ResolveInfo
 import android.content.pm.ServiceInfo
+import android.os.Process
+import android.widget.Toast
+import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.client.ipc.VActivityManager
 import com.lody.virtual.client.ipc.VPackageManager
+import com.lody.virtual.client.ipc.VirtualSettingsManager
 import com.lody.virtual.os.VBinder
 import com.lody.virtual.os.VUserHandle
+import com.lody.virtual.server.IVirtualSettingsManager.POLICY_NONE
+import com.lody.virtual.server.IVirtualSettingsManager.POLICY_STRICT_HARDENING
 import com.lody.virtual.server.permission.VPermissionManager
+import com.lody.virtual.server.settings.VirtualSettingsService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import timber.log.Timber
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
 
@@ -18,10 +29,48 @@ object SecurityUtils {
         VPermissionManager.get()
     }
 
+    fun getSecurityPolicy(): Int {
+        return if (VirtualCore.get().isServerProcess) {
+            VirtualSettingsService.servicePolicy
+        } else {
+            VirtualSettingsManager.getServicePolicy()
+        }
+    }
+
+    fun Int.isNone(): Boolean = this == POLICY_NONE
+    fun Int.isStrict(): Boolean = this == POLICY_STRICT_HARDENING
+
+    fun throwSecurityException(message: String) {
+        val policy = getSecurityPolicy()
+        Timber.i("Security exception thrown with policy $policy and message: $message")
+
+        if (policy.isNone()) {
+            return
+        }
+
+        if (policy.isStrict()) {
+            runCatching {
+                val pid = VBinder.getCallingPid()
+                Process.killProcess(pid)
+                CoroutineScope(Dispatchers.Main).launch {
+                    Toast.makeText(
+                        VirtualCore.get().context,
+                        "Killed process due to security exception: $message",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+
+        throw SecurityException(message)
+    }
+
     @Throws
     private fun getCallingUidSafe(): Int {
         val uid = VBinder.getCallingUid()
         if (uid == -1) {
+            // It is normal we cannot resolve the calling UID on app startup
+            // Do not kill the process using throwSecurityException
             throw SecurityException("Cannot get calling UID")
         }
         return uid
@@ -32,7 +81,7 @@ object SecurityUtils {
     @Throws(SecurityException::class)
     fun enforceNotIsolatedCaller(caller: String) {
         if (VUserHandle.isIsolated(getCallingUidSafe())) {
-            throw SecurityException("Isolated process not allowed to call $caller")
+            throwSecurityException("Isolated process not allowed to call $caller")
         }
     }
 
@@ -68,8 +117,7 @@ object SecurityUtils {
         val isSameApp = VUserHandle.isSameApp(packageUid, callingUid)
 
         if (!isSameApp) {
-            val e = SecurityException("$packageName does not belong to uid $callingUid")
-            throw e
+            throwSecurityException("$packageName does not belong to uid $callingUid")
         }
     }
 
@@ -85,14 +133,14 @@ object SecurityUtils {
 
         val msg =
             "Permission Denial: $func from pid=${VBinder.getCallingPid()}, uid=${getCallingUidSafe()} requires $permission"
-        throw SecurityException(msg)
+        throwSecurityException(msg)
     }
 
     @JvmStatic
     @Throws(SecurityException::class)
     fun enforceCallingUid(uid: Int) {
         if (getCallingUidSafe() != uid && uid != VActivityManager.get().systemPid) {
-            throw SecurityException("Forbidden calling UID.")
+            throwSecurityException("Forbidden calling UID.")
         }
     }
 
@@ -100,7 +148,7 @@ object SecurityUtils {
     @Throws(SecurityException::class)
     fun enforceCallingUser(userId: Int) {
         if (isCrossUser(getCallingUidSafe(), userId)) {
-            throw SecurityException("Forbidden cross-user interaction.")
+            throwSecurityException("Forbidden cross-user interaction.")
         }
     }
 
@@ -109,12 +157,17 @@ object SecurityUtils {
     fun assertSystemCaller() {
         val callingUid = getCallingUidSafe()
         if (callingUid != VActivityManager.get().systemPid) {
-            throw SecurityException("Only callable by the system.")
+            throwSecurityException("Only callable by the system.")
         }
     }
 
     // https://android.googlesource.com/platform/frameworks/base/+/94b4c163b7dfe5ce3607f7bb8456f9573f7de57d/services/core/java/com/android/server/accounts/AccountManagerService.java#1797
     private fun isCrossUser(callingUid: Int, userId: Int): Boolean {
+        val policy = getSecurityPolicy()
+        if (policy.isNone()) {
+            return false
+        }
+
         return (userId != VUserHandle.getCallingUserId()
                 // Always allow the system to perform cross-user actions
                 && callingUid != VActivityManager.get().systemPid)
@@ -191,6 +244,11 @@ object SecurityUtils {
         callingUid: Int,
     ): Boolean {
         // TODO minimize IPC calls
+
+        val policy = getSecurityPolicy()
+        if (policy.isNone()) {
+            return true
+        }
 
         // Always allow IPC from system process
         if (callingUid == VActivityManager.get().systemPid) {

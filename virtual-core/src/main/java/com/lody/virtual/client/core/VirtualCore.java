@@ -51,6 +51,7 @@ import com.lody.virtual.client.ipc.VActivityManager;
 import com.lody.virtual.client.ipc.VHookClientAttacher;
 import com.lody.virtual.client.ipc.VLoggingClientAttacher;
 import com.lody.virtual.client.ipc.VPackageManager;
+import com.lody.virtual.client.ipc.VirtualSettingsManager;
 import com.lody.virtual.client.stub.VASettings;
 import com.lody.virtual.helper.compat.BundleCompat;
 import com.lody.virtual.helper.utils.BitmapUtils;
@@ -440,10 +441,6 @@ public final class VirtualCore {
 
     public boolean isXposedEnabled() {
         return !VirtualCore.get().getContext().getFileStreamPath(".disable_xposed").exists();
-    }
-
-    public boolean isSeccompEnabled() {
-        return !VirtualCore.get().getContext().getFileStreamPath(".disable_seccomp").exists();
     }
 
     public boolean isAppInstalled(String pkg) {
