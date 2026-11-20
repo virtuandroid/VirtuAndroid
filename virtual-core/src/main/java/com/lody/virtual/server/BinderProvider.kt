@@ -25,6 +25,7 @@ import com.lody.virtual.server.notification.VNotificationManagerService
 import com.lody.virtual.server.pm.VAppManagerService
 import com.lody.virtual.server.pm.VPackageManagerService
 import com.lody.virtual.server.pm.VUserManagerService
+import com.lody.virtual.server.settings.VirtualSettingsService
 import com.lody.virtual.server.vs.VirtualStorageService
 import org.matrix.vector.service.VectorManagerService
 
@@ -60,6 +61,9 @@ class BinderProvider : ContentProvider() {
 
         VLoggingManagerService.get().start()
         addService(ServiceManagerNative.VIRTUAL_LOG, VLoggingManagerService.get())
+
+        VirtualSettingsService.get().start()
+        addService(ServiceManagerNative.VIRTUAL_SETTINGS, VirtualSettingsService.get())
 
         VectorManagerService.get().start()
         addService(ServiceManagerNative.VIRTUAL_HOOK, VHookManagerService.get())

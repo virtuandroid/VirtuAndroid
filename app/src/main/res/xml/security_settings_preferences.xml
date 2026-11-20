@@ -2,11 +2,11 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
     <SwitchPreference
-        android:defaultValue="false"
-        android:key="security_settings_disable_seccomp"
+        android:defaultValue="true"
+        android:key="security_settings_enable_seccomp"
         android:persistent="true"
-        android:summary="@string/security_settings_disable_seccomp_summary"
-        android:title="@string/security_settings_disable_seccomp" />
+        android:summary="@string/security_settings_enable_seccomp_summary"
+        android:title="@string/security_settings_enable_seccomp" />
 
     <ListPreference
         android:defaultValue="0"

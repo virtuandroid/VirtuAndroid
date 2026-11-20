@@ -8,7 +8,7 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
 import com.android.launcher3.LauncherFiles
-import com.virtualxposed.log.client.VLoggingClient
+import com.lody.virtual.client.ipc.VirtualSettingsManager
 import io.virtualapp.VCommends
 import io.virtualapp.abs.ui.VActivity
 import java.io.IOException
@@ -33,27 +33,33 @@ class SecuritySettingsActivity : VActivity() {
             preferenceManager.setSharedPreferencesName(LauncherFiles.SHARED_PREFERENCES_KEY)
             addPreferencesFromResource(io.virtualapp.R.xml.security_settings_preferences)
 
-            setupFileFlagPreference(DISABLE_SECCOMP, ".disable_seccomp")
-
+            val seccomp = findPreference<SwitchPreference>(ENABLE_SECCOMP)
+            seccomp?.isChecked = VirtualSettingsManager.get().getSeccompEnabled()
+            seccomp?.onPreferenceChangeListener =
+                Preference.OnPreferenceChangeListener { _, k ->
+                    val change = k as? Boolean ?: return@OnPreferenceChangeListener false
+                    val success = VirtualSettingsManager.get().setSeccompEnabled(change)
+                    return@OnPreferenceChangeListener success
+                }
 
             val fingerprint = findPreference<ListPreference>(FINGERPRINT_INCONSISTENT)
-            fingerprint?.value = VLoggingClient.get().getFingerprintAction()?.toString()
+            fingerprint?.value = VirtualSettingsManager.get().getFingerprintLogAction().toString()
             fingerprint?.onPreferenceChangeListener =
                 Preference.OnPreferenceChangeListener { _, k ->
                     val key = (k as? Int) ?: (k as? String)?.toIntOrNull()
                     ?: return@OnPreferenceChangeListener false
-                    val success = VLoggingClient.get().setFingerprintAction(key)
+                    val success = VirtualSettingsManager.get().setFingerprintLogAction(key)
                     return@OnPreferenceChangeListener success
                 }
 
 
             val dangerousAction = findPreference<ListPreference>(DANGEROUS_ACTION)
-            dangerousAction?.value = VLoggingClient.get().getDangerousGuestAction()?.toString()
+            dangerousAction?.value = VirtualSettingsManager.get().getDangerousGuestAction().toString()
             dangerousAction?.onPreferenceChangeListener =
                 Preference.OnPreferenceChangeListener { _, k ->
                     val key = (k as? Int) ?: (k as? String)?.toIntOrNull()
                     ?: return@OnPreferenceChangeListener false
-                    val success = VLoggingClient.get().setDangerousGuestAction(key)
+                    val success = VirtualSettingsManager.get().setDangerousGuestAction(key)
                     return@OnPreferenceChangeListener success
                 }
         }
@@ -97,7 +103,7 @@ class SecuritySettingsActivity : VActivity() {
     }
 
     companion object {
-        private const val DISABLE_SECCOMP = "security_settings_disable_seccomp"
+        private const val ENABLE_SECCOMP = "security_settings_enable_seccomp"
         private const val FINGERPRINT_INCONSISTENT = "advance_settings_fingerprint_action"
         private const val DANGEROUS_ACTION = "advance_settings_dangerous_action"
     }
