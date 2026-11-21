@@ -247,6 +247,7 @@ struct PathResult {
     uint64_t addr = 0;       // tracee address of the original string (for patching)
     size_t raw_len = 0;      // strlen of the original string
 };
+
 constexpr int PASSTHRU = -1; // empty path / NULL path: operates on an already-open fd
 
 // "/proc/self" would resolve to the *broker*, so rewrite it to the tracee.
@@ -387,6 +388,13 @@ static void do_open(Ctx &c, int dirfd, int path_arg, int flags_arg, int mode_arg
         need |= WRITE;
     }
     if (flags & O_PATH) {
+        // Linux docs explicitly say ioctl(2) does not support O_PATH
+        // Therefore we need to remove it from our open call, otherwise we get EBADF when sending back the fd
+        flags = (flags & ~O_PATH)
+                // "When O_PATH is specified in flags, flag bits other than
+                // O_CLOEXEC, O_DIRECTORY, and O_NOFOLLOW are ignored."
+                & O_CLOEXEC & O_DIRECTORY & O_NOFOLLOW;
+
         need = READ;
     }
     PathResult p;
@@ -395,7 +403,6 @@ static void do_open(Ctx &c, int dirfd, int path_arg, int flags_arg, int mode_arg
     FAIL_ON(e);
 
     // Path is already fully resolved, so O_NOFOLLOW closes the dangling-symlink+O_CREAT escape.
-    // Remove O_PATH from the args, otherwise we get EBADF when sending back the fd.
     int fd = (int) syscall(__NR_openat, AT_FDCWD, p.path.c_str(),
                            (flags | O_CLOEXEC | O_NOFOLLOW) & ~O_PATH, mode);
 
