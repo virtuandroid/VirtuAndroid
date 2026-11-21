@@ -3,13 +3,17 @@ package com.lody.virtual.server.permission
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.pm.PermissionInfo
+import android.os.Build
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.helper.utils.VLog
 import com.lody.virtual.os.VEnvironment
 import com.lody.virtual.server.pm.SignUtils
 import com.lody.virtual.server.pm.parser.VPackage
-import java.util.concurrent.CompletableFuture
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ExecutionException
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * @author Alberto Lazari
@@ -409,17 +413,23 @@ class VPermissionManager private constructor() {
          * @return Group name of @permission, or `null` if not in any group
          */
         private fun getPermissionGroup(permission: String): String? {
-            val groupFuture = CompletableFuture<String?>()
+            val groupFuture = CompletableDeferred<String?>()
             val ctx = VirtualCore.get().context
-            ctx.packageManager
-                .getGroupOfPlatformPermission(
-                    permission,
-                    ctx.mainExecutor
-                ) { group: String? ->
-                    groupFuture.complete(group)
-                }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                ctx.packageManager
+                    .getGroupOfPlatformPermission(
+                        permission,
+                        ctx.mainExecutor
+                    ) { group: String? ->
+                        groupFuture.complete(group)
+                    }
+            }
             try {
-                return groupFuture.get()
+                return runBlocking {
+                    withTimeoutOrNull(10.seconds) {
+                        groupFuture.await()
+                    }
+                }
             } catch (e: ExecutionException) {
                 e.printStackTrace()
             } catch (e: InterruptedException) {

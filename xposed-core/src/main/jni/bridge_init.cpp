@@ -115,19 +115,19 @@ void install_dlopen_hook() {
 void *InlineHooker(void *target, void *hooker) {
     _make_rwx(target, _page_size);
     void *origin_call;
-#ifdef __x86_64__
-    if (helpers::InstallHook(target, hooker, &origin_call) == RT_SUCCESS) {
-        return origin_call;
-    } else {
-        return nullptr;
-    }
-#else
+//#ifdef __x86_64__
+//    if (helpers::InstallHook(target, hooker, &origin_call) == RT_SUCCESS) {
+//        return origin_call;
+//    } else {
+//        return nullptr;
+//    }
+//#else
     if (DobbyHook(target, hooker, &origin_call) == RT_SUCCESS) {
         return origin_call;
     } else {
         return nullptr;
     }
-#endif
+//#endif
 }
 
 bool InlineUnhooker(void *func) {

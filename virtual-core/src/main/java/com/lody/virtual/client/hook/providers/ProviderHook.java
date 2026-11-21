@@ -13,6 +13,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IInterface;
 import android.os.ParcelFileDescriptor;
+
 import com.lody.virtual.client.core.VirtualCore;
 import com.lody.virtual.client.fixer.ContextFixer;
 import com.lody.virtual.client.hook.base.MethodBox;
@@ -21,6 +22,7 @@ import com.lody.virtual.helper.compat.BuildCompat;
 import com.lody.virtual.helper.utils.VLog;
 import com.lody.virtual.os.VBinder;
 import com.lody.virtual.server.permission.VPermissionManager;
+
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -30,6 +32,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+
 import mirror.android.content.AttributionSource;
 import mirror.android.content.AttributionSourceState;
 import mirror.android.content.IContentProvider;
@@ -174,7 +177,7 @@ public class ProviderHook implements InvocationHandler {
         }
         MethodBox methodBox = new MethodBox(method, mBase, args);
 
-        if(!STATUS) return methodBox.call();    // If ProviderHook is not active, return base call
+        if (!STATUS) return methodBox.call();    // If ProviderHook is not active, return base call
 
         int start = Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2 ? 1 : 0;
         if (BuildCompat.isS()) {
@@ -185,13 +188,13 @@ public class ProviderHook implements InvocationHandler {
             start = 2;
         }
         String name = method.getName();
-        if (BuildCompat.isS() ) {
+        if (BuildCompat.isS()) {
             tryFixAttributionSource(name, args);
         }
         enforcePermissions(name, args, start);
         try {
             if ("call".equals(name)) {
-                if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     start = 2;
                 } else if (BuildCompat.isR()) {
                     start = 3;
@@ -301,36 +304,42 @@ public class ProviderHook implements InvocationHandler {
 
 
     private int enforcePermissions(final String method, final Object[] args, final int start)
-    throws OperationApplicationException {
-        if (args != null && args.length > start && args[0] != null && args[start] != null
-                && args[0] instanceof android.content.AttributionSource accessAttributionSource
-                && args[start] instanceof Uri uri) {
-            return switch (method) {
-                case "query", "canonicalize", "uncanonicalize", "refresh" ->
-                    enforceReadPermission(accessAttributionSource, uri);
-                case "insert", "bulkInsert", "delete", "update" ->
-                    enforceWritePermission(accessAttributionSource, uri);
-                case "applyBatch" -> {
-                    final var operations = (ArrayList<ContentProviderOperation>) args[start + 1];
-                    for (final var operation : operations) {
-                        if (operation.isReadOperation()) {
-                            if (enforceReadPermission(accessAttributionSource, uri)
-                                    != PackageManager.PERMISSION_GRANTED) {
-                                throw new OperationApplicationException("App op not allowed", 0);
+            throws OperationApplicationException {
+
+        try {
+            if (args != null && args.length > start && args[0] != null && args[start] != null
+                    && args[0] instanceof android.content.AttributionSource accessAttributionSource
+                    && args[start] instanceof Uri uri) {
+                return switch (method) {
+                    case "query", "canonicalize", "uncanonicalize", "refresh" ->
+                            enforceReadPermission(accessAttributionSource, uri);
+                    case "insert", "bulkInsert", "delete", "update" ->
+                            enforceWritePermission(accessAttributionSource, uri);
+                    case "applyBatch" -> {
+                        final var operations = (ArrayList<ContentProviderOperation>) args[start + 1];
+                        for (final var operation : operations) {
+                            if (operation.isReadOperation()) {
+                                if (enforceReadPermission(accessAttributionSource, uri)
+                                        != PackageManager.PERMISSION_GRANTED) {
+                                    throw new OperationApplicationException("App op not allowed", 0);
+                                }
+                            }
+                            if (operation.isWriteOperation()) {
+                                if (enforceWritePermission(accessAttributionSource, uri)
+                                        != PackageManager.PERMISSION_GRANTED) {
+                                    throw new OperationApplicationException("App op not allowed", 0);
+                                }
                             }
                         }
-                        if (operation.isWriteOperation()) {
-                            if (enforceWritePermission(accessAttributionSource, uri)
-                                    != PackageManager.PERMISSION_GRANTED) {
-                                throw new OperationApplicationException("App op not allowed", 0);
-                            }
-                        }
+                        yield PackageManager.PERMISSION_GRANTED;
                     }
-                    yield PackageManager.PERMISSION_GRANTED;
-                }
-                default -> PackageManager.PERMISSION_GRANTED;
-            };
+                    default -> PackageManager.PERMISSION_GRANTED;
+                };
+            }
+        } catch (NoClassDefFoundError e) {
+            return PackageManager.PERMISSION_GRANTED;
         }
+
         return PackageManager.PERMISSION_GRANTED;
     }
 
@@ -340,8 +349,8 @@ public class ProviderHook implements InvocationHandler {
             final android.content.AttributionSource accessAttributionSource,
             final Uri uri) throws SecurityException {
         final var permission = VirtualCore.getPM()
-            .resolveContentProvider(uri.getAuthority(), PackageManager.GET_META_DATA)
-            .readPermission;
+                .resolveContentProvider(uri.getAuthority(), PackageManager.GET_META_DATA)
+                .readPermission;
         final int pid = VBinder.getCallingPid();
         final int uid = VBinder.getCallingUid();
         // if providerInfo.readPermission is null, no permission is required -> GRANT
@@ -354,9 +363,9 @@ public class ProviderHook implements InvocationHandler {
             suffix = " requires that you obtain access using ACTION_OPEN_DOCUMENT or related APIs";
         } else {
             suffix = " requires " + permission + ", or grantUriPermission()";
-        // Assume the provider is exported
-        // } else {
-        //     suffix = " requires the provider be exported, or grantUriPermission()";
+            // Assume the provider is exported
+            // } else {
+            //     suffix = " requires the provider be exported, or grantUriPermission()";
         }
         throw new SecurityException("Permission Denial: reading "
                 + ProviderHook.class.getSimpleName() + " uri " + uri + " from pid=" + pid
@@ -369,8 +378,8 @@ public class ProviderHook implements InvocationHandler {
             final android.content.AttributionSource accessAttributionSource,
             final Uri uri) throws SecurityException {
         final var permission = VirtualCore.getPM()
-            .resolveContentProvider(uri.getAuthority(), PackageManager.GET_META_DATA)
-            .writePermission;
+                .resolveContentProvider(uri.getAuthority(), PackageManager.GET_META_DATA)
+                .writePermission;
         final int pid = VBinder.getCallingPid();
         final int uid = VBinder.getCallingUid();
         // if providerInfo.writePermission is null, no permission is required -> GRANT

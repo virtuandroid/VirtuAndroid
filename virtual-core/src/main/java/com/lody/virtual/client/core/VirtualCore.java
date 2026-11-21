@@ -222,7 +222,13 @@ public final class VirtualCore {
             invocationStubManager.injectAll();
             ContextFixer.fixContext(context);
             // Disable system permission cache to force VPermissionManager system to be used
-            PermissionManager.disablePermissionCache.call();
+            try {
+                PermissionManager.disablePermissionCache.call();
+            } catch (NullPointerException nullPointerException) {
+                // Not supported on lower sdk devices
+                // TODO check
+            }
+
             VPermissionManager.get().systemReady();
             VMediaProvider.get();
             // Attach to the logging client

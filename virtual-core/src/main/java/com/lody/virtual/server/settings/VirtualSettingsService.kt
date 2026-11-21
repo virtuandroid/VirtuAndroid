@@ -1,5 +1,6 @@
 package com.lody.virtual.server.settings
 
+import android.os.Build
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.client.ipc.VActivityManager
 import com.lody.virtual.os.VBinder
@@ -80,7 +81,9 @@ object VirtualSettingsService : IVirtualSettingsManager.Stub() {
 
 
     override fun getSeccompEnabled(): Boolean {
-        return settings.value.seccompEnabled
+        // The seccomp implementation is only supported on A11+
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                && settings.value.seccompEnabled
     }
 
     override fun setSeccompEnabled(enabled: Boolean): Boolean {

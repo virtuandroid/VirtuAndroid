@@ -1,6 +1,7 @@
 package io.virtualapp.settings
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.preference.ListPreference
@@ -34,6 +35,11 @@ class SecuritySettingsActivity : VActivity() {
             addPreferencesFromResource(io.virtualapp.R.xml.security_settings_preferences)
 
             val seccomp = findPreference<SwitchPreference>(ENABLE_SECCOMP)
+
+            // Make it clearly visible to the user that Android 10 and below
+            // does not support the current seccomp implementation
+            seccomp?.isEnabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+
             seccomp?.isChecked = VirtualSettingsManager.get().getSeccompEnabled()
             seccomp?.onPreferenceChangeListener =
                 Preference.OnPreferenceChangeListener { _, k ->
