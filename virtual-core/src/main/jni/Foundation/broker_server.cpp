@@ -50,7 +50,7 @@ struct JavaPolicy {
 
 // Thread-safe container for multiple server instances
 pthread_mutex_t g_servers_mutex = PTHREAD_MUTEX_INITIALIZER;
-std::map<pid_t, JavaPolicy*> g_servers;
+std::map<pid_t, JavaPolicy *> g_servers;
 
 static thread_local JavaPolicy g_policy;
 static thread_local char g_cwd[PATH_MAX] = "/";
@@ -267,7 +267,9 @@ static void fix_proc_self(std::string &p, pid_t tid) {
 // only its parent directory is.
 static int resolve_path(Ctx &c, int dirfd, const char *raw, bool follow, std::string &out) {
     std::string p(raw);
-    if (p.empty()) return ENOENT;
+    if (p.empty()) {
+        return ENOENT;
+    }
 
     if (p[0] != '/') {
         char link[64], base[PATH_MAX];
@@ -278,10 +280,14 @@ static int resolve_path(Ctx &c, int dirfd, const char *raw, bool follow, std::st
             if (dirfd == AT_FDCWD && g_cwd[0] == '/') {
                 strncpy(base, g_cwd, sizeof base - 1);
                 n = (ssize_t) strlen(base);
-            } else return dirfd == AT_FDCWD ? errno : EBADF;
+            } else {
+                return dirfd == AT_FDCWD ? errno : EBADF;
+            }
         }
         base[n] = 0;
-        if (base[0] != '/') return ENOTDIR;
+        if (base[0] != '/') {
+            return ENOTDIR;
+        }
         p = std::string(base) + "/" + p;
     }
     fix_proc_self(p, c.tid());
@@ -297,11 +303,21 @@ static int resolve_path(Ctx &c, int dirfd, const char *raw, bool follow, std::st
             out = buf;
             return 0;
         }
-        if (special || errno != ENOENT) return errno;
+        if (special) {
+            return errno;
+        }
         // final component doesn't exist (create case): fall through to parent + name
     }
     std::string parent = slash == 0 ? "/" : p.substr(0, slash);
-    if (!realpath(parent.c_str(), buf)) return errno;
+    if (!realpath(parent.c_str(), buf)) {
+        // Small compatibility fix for apps which run execve.
+        // Without this the forked program will try to resolve
+        // linkerconfig and print a warning when they get EACCES
+        if (errno == EACCES && parent == "/linkerconfig") {
+            return ENOENT;
+        }
+        return errno;
+    }
     out = buf;
     if (out != "/") out += '/';
     out += last;
@@ -329,6 +345,7 @@ static int
 resolve_and_authorize(Ctx &c, int dirfd, const char *raw, bool follow, int mode, PathResult &r) {
     std::string resolved;
     int e = resolve_path(c, dirfd, raw, follow, resolved);
+
     if (e) {
         return e;
     }
@@ -339,12 +356,17 @@ resolve_and_authorize(Ctx &c, int dirfd, const char *raw, bool follow, int mode,
 static int prepare_path(Ctx &c, int dirfd, int path_arg, bool follow, int mode,
                         bool allow_empty, PathResult &r) {
     r.addr = untag(c.arg(path_arg));
+
     if (!r.addr) return allow_empty ? PASSTHRU : EFAULT;
     char raw[PATH_MAX];
     int e = read_cstr(c, r.addr, raw, sizeof raw);
     if (e) return e;
-    if (!c.valid()) return ESRCH;                  // tracee gone / syscall interrupted
-    if (!raw[0]) return allow_empty ? PASSTHRU : ENOENT;
+    if (!c.valid()) {
+        return ESRCH;                  // tracee gone / syscall interrupted
+    }
+    if (!raw[0]) {
+        return allow_empty ? PASSTHRU : ENOENT;
+    }
     r.raw_len = strlen(raw);
     return resolve_and_authorize(c, dirfd, raw, follow, mode, r);
 }
@@ -357,7 +379,6 @@ static int prepare_path(Ctx &c, int dirfd, int path_arg, bool follow, int mode,
 /* Handlers                                                                   */
 /* ========================================================================== */
 static void do_open(Ctx &c, int dirfd, int path_arg, int flags_arg, int mode_arg) {
-    // TODO this cannot load /linkerconfig, make cont bypass whenever a process is forked, but not after
     int flags = (int) c.arg(flags_arg);
     auto mode = (mode_t) c.arg(mode_arg);
     int acc = flags & O_ACCMODE;
@@ -368,7 +389,6 @@ static void do_open(Ctx &c, int dirfd, int path_arg, int flags_arg, int mode_arg
     if (flags & O_PATH) {
         need = READ;
     }
-
     PathResult p;
     int e = prepare_path(c, dirfd, path_arg, !(flags & O_NOFOLLOW), need, false, p);
 
@@ -377,7 +397,10 @@ static void do_open(Ctx &c, int dirfd, int path_arg, int flags_arg, int mode_arg
     // Path is already fully resolved, so O_NOFOLLOW closes the dangling-symlink+O_CREAT escape.
     int fd = (int) syscall(__NR_openat, AT_FDCWD, p.path.c_str(), flags | O_CLOEXEC | O_NOFOLLOW,
                            mode);
-    if (fd < 0) return c.fail(errno);
+
+    if (fd < 0) {
+        return c.fail(errno);
+    }
 
     seccomp_notif_addfd add{};
     add.id = c.req->id;

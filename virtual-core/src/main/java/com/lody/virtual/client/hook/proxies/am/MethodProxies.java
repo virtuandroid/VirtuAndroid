@@ -6,6 +6,7 @@ import static com.lody.virtual.IntentHelper.INTENT_EMBEDDED;
 import static com.lody.virtual.IntentHelper.INTENT_FROM_INNER;
 import static com.lody.virtual.IntentHelper.INTENT_URI;
 import static com.lody.virtual.IntentHelper.INTENT_USER_ID;
+import static com.lody.virtual.server.IVirtualSettingsManager.POLICY_NONE;
 
 import android.Manifest;
 import android.annotation.TargetApi;
@@ -58,6 +59,7 @@ import com.lody.virtual.client.ipc.ActivityClientRecord;
 import com.lody.virtual.client.ipc.VActivityManager;
 import com.lody.virtual.client.ipc.VNotificationManager;
 import com.lody.virtual.client.ipc.VPackageManager;
+import com.lody.virtual.client.ipc.VirtualSettingsManager;
 import com.lody.virtual.client.stub.ChooserActivity;
 import com.lody.virtual.client.stub.GrantPermissionsActivity;
 import com.lody.virtual.client.stub.StubPendingActivity;
@@ -1508,6 +1510,10 @@ class MethodProxies {
             final VPermissionManager permissionManager = VPermissionManager.get();
 
             if (cpi == null) {
+                return null;
+            }
+
+            if (VirtualSettingsManager.get().getServicePolicy() == POLICY_NONE) {
                 return null;
             }
 
