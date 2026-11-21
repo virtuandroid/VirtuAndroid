@@ -72,7 +72,7 @@ int apply_seccomp_filter() {
             DENY_SYSCALL(__NR_io_uring_register),
 
             // Generally unused, but dangerous syscalls
-            DENY_SYSCALL(__NR_name_to_handle_at),
+            DENY_SYSCALL(__NR_name_to_handle_at),  // handle-based open bypasses paths entirely
             DENY_SYSCALL(__NR_open_by_handle_at),
             DENY_SYSCALL(__NR_mount),
             DENY_SYSCALL(__NR_umount2),
@@ -82,7 +82,15 @@ int apply_seccomp_filter() {
             DENY_SYSCALL(__NR_pidfd_getfd),
             DENY_SYSCALL(__NR_bpf),
             DENY_SYSCALL(__NR_userfaultfd),
+            DENY_SYSCALL(__NR_chroot),
             DENY_SYSCALL(__NR_kcmp),
+            DENY_SYSCALL(__NR_swapon),
+            DENY_SYSCALL(__NR_swapoff),
+            DENY_SYSCALL(__NR_fanotify_mark),
+            DENY_SYSCALL(__NR_open_tree),
+            DENY_SYSCALL(__NR_move_mount),
+            DENY_SYSCALL(__NR_fsopen),
+            DENY_SYSCALL(__NR_fspick),
 
             // Deprecated thread killing syscall which should not be used by processes
             DENY_SYSCALL(__NR_tkill),

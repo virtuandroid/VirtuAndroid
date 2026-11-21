@@ -66,12 +66,9 @@ class StorageSandbox {
 
         // Only allow the app to inspect its own proc
         whitelistPaths("/proc/$pid")
-        redirectDirectory("/proc/self", "/proc/$pid")
         whitelistPaths("/proc/sys")
         whitelistPaths("/proc") // TODO implement checks for child processes
         whitelistPaths("/data/data/$hostPkg/.agent-logs") // TODO This is called sometimes ???
-
-        // TODO implement /proc/thread-self
 
         // Important system directories required for runtime
         whitelistPaths(
