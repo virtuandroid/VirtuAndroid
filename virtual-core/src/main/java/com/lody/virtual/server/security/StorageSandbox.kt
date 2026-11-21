@@ -120,6 +120,8 @@ class StorageSandbox {
         redirectDirectory("/sys/class/net/wlan0/address", wifiMacAddressFile)
         redirectDirectory("/sys/class/net/eth0/address", wifiMacAddressFile)
         redirectDirectory("/sys/class/net/wifi/address", wifiMacAddressFile)
+
+        // TODO redirect /storage/emulated/0/Android/data/app_id
     }
 
 

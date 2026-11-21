@@ -395,8 +395,9 @@ static void do_open(Ctx &c, int dirfd, int path_arg, int flags_arg, int mode_arg
     FAIL_ON(e);
 
     // Path is already fully resolved, so O_NOFOLLOW closes the dangling-symlink+O_CREAT escape.
-    int fd = (int) syscall(__NR_openat, AT_FDCWD, p.path.c_str(), flags | O_CLOEXEC | O_NOFOLLOW,
-                           mode);
+    // Remove O_PATH from the args, otherwise we get EBADF when sending back the fd.
+    int fd = (int) syscall(__NR_openat, AT_FDCWD, p.path.c_str(),
+                           (flags | O_CLOEXEC | O_NOFOLLOW) & ~O_PATH, mode);
 
     if (fd < 0) {
         return c.fail(errno);
@@ -410,7 +411,9 @@ static void do_open(Ctx &c, int dirfd, int path_arg, int flags_arg, int mode_arg
     int newfd = (int) ioctl(c.notif_fd, SECCOMP_IOCTL_NOTIF_ADDFD, &add);
     int saved = errno;
     close(fd);
-    if (newfd < 0) return c.fail(saved);
+    if (newfd < 0) {
+        return c.fail(saved);
+    }
     c.ok(newfd);
 }
 
