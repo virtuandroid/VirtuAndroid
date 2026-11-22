@@ -15,6 +15,7 @@ import com.android.launcher3.LauncherFiles
 import com.lody.virtual.client.ipc.VirtualSettingsManager
 import com.lody.virtual.server.IVirtualSettingsManager.ACTION_KILL_APP
 import com.lody.virtual.server.IVirtualSettingsManager.ACTION_LOG_ONLY
+import com.lody.virtual.server.IVirtualSettingsManager.ACTION_TOAST
 import com.lody.virtual.server.IVirtualSettingsManager.POLICY_NONE
 import com.lody.virtual.server.IVirtualSettingsManager.POLICY_STRICT_HARDENING
 import com.lody.virtual.server.IVirtualSettingsManager.POLICY_TRANSPARENT_HARDENING
@@ -43,6 +44,7 @@ class SecuritySettingsActivity : VActivity() {
             val seccompEnabled: Boolean,
             val fingerprintAction: Int,
             val dangerousAction: Int,
+            val permissionBypassAction: Int,
             val servicePolicy: Int,
         ) {
             fun save(): Boolean = with(VirtualSettingsManager.get()) {
@@ -51,6 +53,7 @@ class SecuritySettingsActivity : VActivity() {
                     setFingerprintLogAction(fingerprintAction),
                     setDangerousGuestAction(dangerousAction),
                     setServicePolicy(servicePolicy),
+                    setPermissionBypassPolicy(permissionBypassAction),
                 ).all { it }
             }
 
@@ -61,6 +64,7 @@ class SecuritySettingsActivity : VActivity() {
                         fingerprintAction = getFingerprintLogAction(),
                         dangerousAction = getDangerousGuestAction(),
                         servicePolicy = getServicePolicy(),
+                        permissionBypassAction = getPermissionBypassPolicy()
                     )
                 }
             }
@@ -69,14 +73,35 @@ class SecuritySettingsActivity : VActivity() {
         // Values must match R.array.general_hardening_policy_values
         private enum class GeneralPolicy(val value: Int, val preset: SecurityPolicy?) {
             Custom(-1, null),
-            None(0, SecurityPolicy(false, ACTION_LOG_ONLY, ACTION_LOG_ONLY, POLICY_NONE)),
+            None(
+                0,
+                SecurityPolicy(
+                    false,
+                    ACTION_LOG_ONLY,
+                    ACTION_LOG_ONLY,
+                    ACTION_LOG_ONLY,
+                    POLICY_NONE
+                )
+            ),
             TransparentHardening(
                 1,
-                SecurityPolicy(true, ACTION_KILL_APP, ACTION_LOG_ONLY, POLICY_TRANSPARENT_HARDENING)
+                SecurityPolicy(
+                    true,
+                    ACTION_KILL_APP,
+                    ACTION_LOG_ONLY,
+                    ACTION_TOAST,
+                    POLICY_TRANSPARENT_HARDENING
+                )
             ),
             StrictHardening(
                 2,
-                SecurityPolicy(true, ACTION_KILL_APP, ACTION_KILL_APP, POLICY_STRICT_HARDENING)
+                SecurityPolicy(
+                    true,
+                    ACTION_KILL_APP,
+                    ACTION_KILL_APP,
+                    ACTION_KILL_APP,
+                    POLICY_STRICT_HARDENING
+                )
             );
 
             companion object {
@@ -94,12 +119,14 @@ class SecuritySettingsActivity : VActivity() {
         /** What the screen shows. `mode` is stored explicitly so Custom stays Custom
          *  even if the user's edits happen to equal a preset. */
         private data class UiState(val mode: GeneralPolicy, val policy: SecurityPolicy)
+
         private val state: MutableStateFlow<UiState> = MutableStateFlow(loadState())
         private lateinit var generalPolicy: ListPreference
         private lateinit var seccomp: SwitchPreference
-        private lateinit var fingerprint: ListPreference
+        private lateinit var fingerprintAction: ListPreference
         private lateinit var dangerousAction: ListPreference
         private lateinit var servicePolicy: ListPreference
+        private lateinit var permissionBypassAction: ListPreference
 
         private fun loadState(): UiState {
             val policy = SecurityPolicy.load()
@@ -114,19 +141,24 @@ class SecuritySettingsActivity : VActivity() {
 
             generalPolicy = findPreference(GENERAL_POLICY)!!
             seccomp = findPreference(ENABLE_SECCOMP)!!
-            fingerprint = findPreference(FINGERPRINT_INCONSISTENT)!!
+            fingerprintAction = findPreference(FINGERPRINT_INCONSISTENT)!!
             dangerousAction = findPreference(DANGEROUS_ACTION)!!
             servicePolicy = findPreference(SERVICE_POLICY)!!
+            this@AdvancedSettingsFragment.permissionBypassAction =
+                findPreference(PERMISSION_ACTION)!!
 
             generalPolicy.onUserChange { value ->
                 GeneralPolicy.fromValue(value)?.let(::selectMode)
             }
             seccomp.onUserChange { value -> (value as? Boolean)?.let { edit { copy(seccompEnabled = it) } } }
-            fingerprint.onUserChange { value ->
+            fingerprintAction.onUserChange { value ->
                 value.convertToInt()?.let { edit { copy(fingerprintAction = it) } }
             }
             dangerousAction.onUserChange { value ->
                 value.convertToInt()?.let { edit { copy(dangerousAction = it) } }
+            }
+            servicePolicy.onUserChange { value ->
+                value.convertToInt()?.let { edit { copy(servicePolicy = it) } }
             }
             servicePolicy.onUserChange { value ->
                 value.convertToInt()?.let { edit { copy(servicePolicy = it) } }
@@ -170,17 +202,20 @@ class SecuritySettingsActivity : VActivity() {
             // Seccomp implementation isn't supported on Android 10 and below
             seccomp.isEnabled = custom && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
-            fingerprint.value = ui.policy.fingerprintAction.toString()
+            fingerprintAction.value = ui.policy.fingerprintAction.toString()
+            permissionBypassAction.value = ui.policy.permissionBypassAction.toString()
 
             dangerousAction.value = ui.policy.dangerousAction.toString()
             dangerousAction.isEnabled = custom
 
             // Dangerous logs include fingerprint inconsistencies
-            val dangerousLogKills =  ui.policy.dangerousAction == ACTION_KILL_APP
-            fingerprint.isEnabled = !dangerousLogKills && custom
+            val dangerousLogKills = ui.policy.dangerousAction == ACTION_KILL_APP
+            fingerprintAction.isEnabled = !dangerousLogKills && custom
+            permissionBypassAction.isEnabled = !dangerousLogKills && custom
 
             servicePolicy.value = ui.policy.servicePolicy.toString()
             servicePolicy.isEnabled = custom
+
         }
 
         private fun Preference.onUserChange(handler: (Any?) -> Unit) {
@@ -217,6 +252,8 @@ class SecuritySettingsActivity : VActivity() {
         private const val ENABLE_SECCOMP = "security_settings_enable_seccomp"
         private const val FINGERPRINT_INCONSISTENT = "advance_settings_fingerprint_action"
         private const val DANGEROUS_ACTION = "advance_settings_dangerous_action"
+        private const val PERMISSION_ACTION = "advance_settings_permission_action"
+
         private const val SERVICE_POLICY = "advance_settings_service_policy"
     }
 }

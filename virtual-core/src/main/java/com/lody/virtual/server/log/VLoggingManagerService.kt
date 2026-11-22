@@ -198,6 +198,37 @@ object VLoggingManagerService : IVLoggingService.Stub() {
                     }
                 }
 
+                is LogMessage.UsePermission -> runCatching {
+                    val settings = VirtualSettingsService.get().permissionBypassAction
+                    when (settings) {
+                        ACTION_TOAST -> {
+                            CoroutineScope(Dispatchers.Main).launch {
+                                Toast.makeText(
+                                    VirtualCore.get().context,
+                                    "Permission bypass detected: ${logMessage.permission}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+
+                        ACTION_KILL_APP -> {
+                            val pkg = logMessageHolder.packageName
+                            val userId = logMessageHolder.userId
+
+                            VActivityManager.get().killAppByPkg(pkg, userId)
+                            CoroutineScope(Dispatchers.Main).launch {
+                                Toast.makeText(
+                                    VirtualCore.get().context,
+                                    "App killed due to permission bypass: ${logMessage.permission}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    }
+                }.onFailure {
+                    Timber.e(it)
+                }
+
                 else -> {}
             }
         }

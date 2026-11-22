@@ -32,6 +32,15 @@
         android:summary="@string/advance_settings_dangerous_action_summary"
         android:title="@string/advance_settings_dangerous_action" />
 
+
+    <ListPreference
+        android:defaultValue="0"
+        android:entries="@array/permission_action_names"
+        android:entryValues="@array/permission_action_values"
+        android:key="advance_settings_permission_action"
+        android:summary="@string/advance_settings_permission_action_summary"
+        android:title="@string/advance_settings_permission_action" />
+
     <ListPreference
         android:defaultValue="0"
         android:entries="@array/fingerprint_names"

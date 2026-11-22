@@ -15,6 +15,9 @@ interface IVirtualSettingsManager {
     int getDangerousGuestAction();
     boolean setDangerousGuestAction(int action);
 
+    int getPermissionBypassAction();
+    boolean setPermissionBypassAction(int action);
+
     boolean getSeccompEnabled();
     boolean setSeccompEnabled(boolean enabled);
 

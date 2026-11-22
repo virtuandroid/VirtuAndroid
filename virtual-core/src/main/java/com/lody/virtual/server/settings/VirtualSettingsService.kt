@@ -79,6 +79,19 @@ object VirtualSettingsService : IVirtualSettingsManager.Stub() {
         }
     }
 
+    override fun getPermissionBypassAction(): Int {
+        return settings.value.permissionBypassAction
+
+    }
+
+    override fun setPermissionBypassAction(action: Int): Boolean {
+        return onlyAllowSystem {
+            settings.update {
+                it.copy(permissionBypassAction = action)
+            }
+        }
+    }
+
 
     override fun getSeccompEnabled(): Boolean {
         // The seccomp implementation is only supported on A11+

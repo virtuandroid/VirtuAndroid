@@ -94,4 +94,20 @@ object VirtualSettingsManager {
             VirtualRuntime.crash(e)
         }
     }
+
+    fun getPermissionBypassPolicy(): Int {
+        return try {
+            getInterface()!!.permissionBypassAction
+        } catch (e: RemoteException) {
+            VirtualRuntime.crash(e)
+        }
+    }
+
+    fun setPermissionBypassPolicy(action: Int): Boolean {
+        return try {
+            getInterface()!!.setPermissionBypassAction(action)
+        } catch (e: RemoteException) {
+            VirtualRuntime.crash(e)
+        }
+    }
 }

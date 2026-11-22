@@ -9,8 +9,10 @@ import java.io.File
 @SuppressLint("UnsafeOptInUsageError")
 @Serializable
 data class VirtualSettings(
-    val fingerprintAction: Int = IVirtualSettingsManager.ACTION_LOG_ONLY,
+    // Make sure these mirror TransparentHardening
+    val fingerprintAction: Int = IVirtualSettingsManager.ACTION_KILL_APP,
     val dangerousGuestAction: Int = IVirtualSettingsManager.ACTION_LOG_ONLY,
+    val permissionBypassAction: Int = IVirtualSettingsManager.ACTION_TOAST,
     val servicePolicy: Int = IVirtualSettingsManager.POLICY_TRANSPARENT_HARDENING,
     val seccompEnabled: Boolean = true
 )

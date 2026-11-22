@@ -192,16 +192,19 @@
     <string name="advance_settings_disable_xposed_summary">When disabled, all Xposed module won\'t take effect.</string>
     <string name="advance_settings_disable_xposed">Disable Xposed</string>
     <string name="advance_settings_fingerprint_action">Fingerprint inconsistency action</string>
-    <string name="advance_settings_fingerprint_action_summary">Manage host actions when the device fingerprint has been altered</string>
+    <string name="advance_settings_fingerprint_action_summary">Manage host action when the device fingerprint has been altered</string>
 
     <string name="advance_settings_general_policy">VirtualXposed security policy</string>
     <string name="advance_settings_general_policy_summary">Manage the VirtualXposed security policy</string>
 
     <string name="advance_settings_dangerous_action">Dangerous log action</string>
-    <string name="advance_settings_dangerous_action_summary">Manage host actions when a dangerous action is detected in a guest process. The danger detection may trigger on false positives</string>
+    <string name="advance_settings_dangerous_action_summary">Manage host action when a dangerous log is received from a guest process. The danger detection may trigger on false positives</string>
 
     <string name="advance_settings_service_policy">Service security policy</string>
-    <string name="advance_settings_service_policy_summary">Manage the security of VirtualXposed system services</string>
+    <string name="advance_settings_service_policy_summary">Manage the security of VirtualXposed services. This is used to prevent cross-guest interaction via the VirtualXposed services</string>
+
+    <string name="advance_settings_permission_action">Permission bypass action</string>
+    <string name="advance_settings_permission_action_summary">Manage the host action whenever a guest process uses an Android API without having the required permissions. Note that this does not prevent the initial API call</string>
 
     <string name="advance_settings_log">Send log message</string>
     <string name="advance_settings_toast">Show toast</string>
@@ -238,6 +241,6 @@ Currently, EXposed has been put on the app store and renamed to Tai Chi. You can
     <string name="unsupported_for_32bit_app">32bits App is not supported!</string>
     <string name="package_state_unknown">Unknown</string>
 
-    <string name="security_settings_enable_seccomp_summary">When disabled, seccomp will not be applied to guest processes. This significantly weakens sandboxing, but may increase app compatibility. Only disable if running trusted apps.</string>
-    <string name="security_settings_enable_seccomp">Enable seccomp sandbox</string>
+    <string name="security_settings_enable_seccomp_summary">Seccomp significantly increases the storage security by proxying dangerous syscalls to the host process. However, this can decrease app compatibility. Only disable if running trusted apps.</string>
+    <string name="security_settings_enable_seccomp">Enable seccomp sandboxing</string>
 </resources>
