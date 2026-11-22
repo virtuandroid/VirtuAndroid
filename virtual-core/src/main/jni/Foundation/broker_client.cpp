@@ -57,6 +57,7 @@ int apply_seccomp_filter() {
             DENY_SYSCALL(__NR_ptrace),
 
             // These are required to send the FD back to the host process
+            // More syscalls are needed for system tracing
             ALLOW_SYSCALL(__NR_mmap),
             ALLOW_SYSCALL(__NR_mprotect),
             ALLOW_SYSCALL(__NR_rt_sigprocmask),
@@ -65,6 +66,9 @@ int apply_seccomp_filter() {
             ALLOW_SYSCALL(__NR_madvise),
             ALLOW_SYSCALL(__NR_fcntl),
             ALLOW_SYSCALL(__NR_getuid),
+            ALLOW_SYSCALL(__NR_epoll_pwait),
+            ALLOW_SYSCALL(__NR_clock_gettime),
+            ALLOW_SYSCALL(__NR_futex),
 
             // Disable syscalls which open stuff from the kernel
             DENY_SYSCALL(__NR_io_uring_setup),

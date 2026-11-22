@@ -25,7 +25,7 @@ object SyscallBroker {
             }
 
             runCatching {
-                trace("SyscallBroker") {
+                trace("SyscallBroker $guestPid") {
                     serverServe(listenFd, guestPid, sandbox, cwd)
                 }
             }
@@ -41,6 +41,7 @@ object SyscallBroker {
         // after the flag is set. This is somewhat unavoidable since
         // we want to make the FD listening blocking in order to avoid busy waiting
         Thread.sleep(10)
+        Timber.i("Broker server started")
     }
 
     private external fun serverServe(fd: Int, pid: Int, sandbox: StorageSandbox, cwd: String)

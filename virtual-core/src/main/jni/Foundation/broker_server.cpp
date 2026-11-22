@@ -42,6 +42,7 @@ constexpr size_t kSiginfoSize = 128;                    // sizeof(siginfo_t), sa
 constexpr unsigned PIDFD_SIGNAL_THREAD_ = 1u << 0;
 constexpr unsigned PIDFD_SIGNAL_THREAD_GROUP_ = 1u << 1;
 constexpr unsigned PIDFD_SIGNAL_PROCESS_GROUP_ = 1u << 2;
+
 struct ScopedFd {
     int fd;
 
@@ -67,6 +68,7 @@ struct JavaPolicy {
     bool running = false;
     jmethodID check_method = nullptr;   // boolean isPathAllowed(String)
     jmethodID redirect_method = nullptr;   // String getRedirectPath(String)
+    pthread_t thread;
 };
 
 // Thread-safe container for multiple server instances
@@ -885,9 +887,9 @@ static void h_connect(Ctx &c) { // TODO FIX
     c.cont();
 }
 
-static bool isKillAllowed(pid_t target) {
+static bool isKillAllowed(Ctx &c, pid_t target) {
     // TODO account for process children
-    return target == g_client_pid;
+    return target == g_client_pid || target == c.req->pid;
 }
 
 static int read_siginfo(Ctx &c, uint64_t addr, uint8_t (&out)[kSiginfoSize]) {
@@ -898,7 +900,7 @@ static int read_siginfo(Ctx &c, uint64_t addr, uint8_t (&out)[kSiginfoSize]) {
 // kill(pid, sig)
 static void h_kill(Ctx &c) {
     auto target = (pid_t) c.arg(0);
-    if (!isKillAllowed(target)) return c.fail(EPERM);
+    if (!isKillAllowed(c, target)) return c.fail(EPERM);
     long r = syscall(__NR_kill, target, (int) c.arg(1));
     r < 0 ? c.fail(errno) : c.ok(0);
 }
@@ -919,7 +921,7 @@ static void h_tgkill(Ctx &c) {
     auto tgid = (pid_t) c.arg(0);
     auto tid = (pid_t) c.arg(1);
     if (tgid <= 0 || tid <= 0) return c.fail(EINVAL);
-    if (!isKillAllowed(tgid)) return c.fail(EPERM);
+    if (!isKillAllowed(c, tgid)) return c.fail(EPERM);
     long r = syscall(__NR_tgkill, tgid, tid, (int) c.arg(2));
     r < 0 ? c.fail(errno) : c.ok(0);
 }
@@ -929,7 +931,7 @@ static void h_tgkill(Ctx &c) {
 static void h_rt_sigqueueinfo(Ctx &c) {
     auto tgid = (pid_t) c.arg(0);
     if (tgid <= 0) return c.fail(EINVAL);
-    if (!isKillAllowed(tgid)) return c.fail(EPERM);
+    if (!isKillAllowed(c, tgid)) return c.fail(EPERM);
     uint8_t info[kSiginfoSize];
     int e = read_siginfo(c, untag(c.arg(2)), info);
     FAIL_ON(e);
@@ -942,7 +944,7 @@ static void h_rt_tgsigqueueinfo(Ctx &c) {
     auto tgid = (pid_t) c.arg(0);
     auto tid = (pid_t) c.arg(1);
     if (tgid <= 0 || tid <= 0) return c.fail(EINVAL);
-    if (!isKillAllowed(tgid)) return c.fail(EPERM);
+    if (!isKillAllowed(c, tgid)) return c.fail(EPERM);
     uint8_t info[kSiginfoSize];
     int e = read_siginfo(c, untag(c.arg(3)), info);
     FAIL_ON(e);
@@ -992,7 +994,7 @@ static void h_pidfd_send_signal(Ctx &c) {
     int target = pidfd_target_pid(mine.fd);
     if (target == -2) return c.fail(EBADF);                        // not a pidfd
     if (target == -1) return c.fail(ESRCH);                        // process already gone
-    if (!isKillAllowed(target)) return c.fail(EPERM);
+    if (!isKillAllowed(c, target)) return c.fail(EPERM);
 
     long r = syscall(__NR_pidfd_send_signal, mine.fd, (int) c.arg(1),
                      info_addr ? info : nullptr, flags);
@@ -1086,13 +1088,20 @@ static void broker_serve(int fd, pid_t client_pid) {
     pthread_mutex_unlock(&g_servers_mutex);
 
     while (true) {
+        pthread_mutex_lock(&g_servers_mutex);
+        bool running = g_policy.running;
+        pthread_mutex_unlock(&g_servers_mutex);
+        if (!running) {
+            break;
+        }
+
         memset(req, 0, sizes.seccomp_notif);
         if (ioctl(fd, SECCOMP_IOCTL_NOTIF_RECV, req) < 0) {
             if (errno == EINTR) continue;
             if (errno == ENOENT) break;
-            perror("NOTIF_RECV");
             break;
         }
+
         if (ioctl(fd, SECCOMP_IOCTL_NOTIF_ID_VALID, &req->id) < 0) continue;
 
         memset(resp, 0, sizes.seccomp_notif_resp);
@@ -1114,12 +1123,16 @@ static void broker_serve(int fd, pid_t client_pid) {
         }   // Ctx closes /proc/<tid>/mem here
 
         if (ioctl(fd, SECCOMP_IOCTL_NOTIF_SEND, resp) < 0 && errno != ENOENT) {
-            perror("NOTIF_SEND");
+            ALOGI("NOTIF_SEND %d", errno);
         }
     }
+
+    close(fd);
     free(req);
     free(resp);
 }
+
+static void on_sig(int) {}
 
 /* ========================================================================== */
 /* JNI entry point                                                            */
@@ -1157,6 +1170,15 @@ Java_com_lody_virtual_server_security_SyscallBroker_serverServe(JNIEnv *env, job
     g_policy.check_method = check_method;
     g_policy.running = true;
     g_policy.redirect_method = redirect_method;
+    g_policy.thread = pthread_self();
+
+    struct sigaction sa = {0};
+    sa.sa_handler = on_sig;
+
+    // We need our own signal handler to exit the broker listener.
+    // The goal is just to send EINT to ioctl, therefore the handler can be empty.
+    // SIGUSR1 is seemingly already used
+    sigaction(SIGUSR2, &sa, nullptr);
 
     pthread_mutex_lock(&g_servers_mutex);
     g_servers[pid] = &g_policy;
@@ -1176,7 +1198,11 @@ Java_com_lody_virtual_server_security_SyscallBroker_serverDestroy(JNIEnv *env, j
 
     if (it != g_servers.end()) {
         // The server exists, safe to update
-        it->second->running = false; // TODO working exit
+        it->second->running = false;
+        auto thread = it->second->thread;
+        if (thread) {
+            pthread_kill(thread, SIGUSR2);
+        }
     }
 
     pthread_mutex_unlock(&g_servers_mutex);

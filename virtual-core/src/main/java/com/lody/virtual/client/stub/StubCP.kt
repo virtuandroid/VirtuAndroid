@@ -41,6 +41,7 @@ open class StubCP : ContentProvider() {
     }
 
     private fun closeFd() {
+        Timber.i("Closing seccomp FD")
         runCatching {
             seccompFd?.close()
             assertSeccompFdClosed()

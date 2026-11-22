@@ -955,9 +955,7 @@ object VActivityManagerService : IActivityManager.Stub() {
                 val sandbox = StorageSandbox().apply {
                     initSandboxForPid(info, pid)
                 }
-
                 SyscallBroker.initServer(notifFd.detachFd(), pid, sandbox)
-
                 // Must be called after server init, otherwise seccomp fails because
                 // there are no listeners, leading to an infinitely loading child process
                 ProviderCall.call(
@@ -966,6 +964,7 @@ object VActivityManagerService : IActivityManager.Stub() {
                     null,
                     null
                 )
+
             }
 
         }
