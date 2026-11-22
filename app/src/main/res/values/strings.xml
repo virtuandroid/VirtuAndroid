@@ -194,16 +194,20 @@
     <string name="advance_settings_fingerprint_action">Fingerprint inconsistency action</string>
     <string name="advance_settings_fingerprint_action_summary">Manage host actions when the device fingerprint has been altered</string>
 
-    <string name="advance_settings_dangerous_action">Dangerous action policy</string>
-    <string name="advance_settings_dangerous_action_summary">Manage host actions when a dangerous action is detected in a guest process. The danger detection may trigger on false positives.</string>
+    <string name="advance_settings_general_policy">VirtualXposed security policy</string>
+    <string name="advance_settings_general_policy_summary">Manage the VirtualXposed security policy</string>
+
+    <string name="advance_settings_dangerous_action">Dangerous log action</string>
+    <string name="advance_settings_dangerous_action_summary">Manage host actions when a dangerous action is detected in a guest process. The danger detection may trigger on false positives</string>
 
     <string name="advance_settings_service_policy">Service security policy</string>
-    <string name="advance_settings_service_policy_summary">Manage the security of VirtualXposed system services.</string>
+    <string name="advance_settings_service_policy_summary">Manage the security of VirtualXposed system services</string>
 
     <string name="advance_settings_log">Send log message</string>
     <string name="advance_settings_toast">Show toast</string>
     <string name="advance_settings_kill">Kill guest app</string>
 
+    <string name="security_settings_policy_custom">Custom</string>
     <string name="security_settings_policy_none">None</string>
     <string name="security_settings_policy_transparent_hardening">Transparent hardening</string>
     <string name="security_settings_policy_strict_hardening">Strict hardening</string>

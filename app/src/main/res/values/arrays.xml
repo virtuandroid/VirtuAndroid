@@ -40,4 +40,18 @@
         <item>2</item>
     </string-array>
 
+    <string-array name="general_hardening_policy_names">
+        <item>@string/security_settings_policy_custom</item>
+        <item>@string/security_settings_policy_none</item>
+        <item>@string/security_settings_policy_transparent_hardening</item>
+        <item>@string/security_settings_policy_strict_hardening</item>
+    </string-array>
+
+    <string-array name="general_hardening_policy_values">
+        <item>-1</item>
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </string-array>
+
 </resources>

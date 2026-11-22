@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <ListPreference
+        android:defaultValue="1"
+        android:entries="@array/general_hardening_policy_names"
+        android:entryValues="@array/general_hardening_policy_values"
+        android:key="advance_settings_general_policy"
+        android:summary="@string/advance_settings_general_policy_summary"
+        android:title="@string/advance_settings_general_policy" />
+
     <SwitchPreference
         android:defaultValue="true"
         android:key="security_settings_enable_seccomp"
@@ -8,13 +16,14 @@
         android:summary="@string/security_settings_enable_seccomp_summary"
         android:title="@string/security_settings_enable_seccomp" />
 
+
     <ListPreference
         android:defaultValue="0"
-        android:entries="@array/fingerprint_names"
-        android:entryValues="@array/fingerprint_values"
-        android:key="advance_settings_fingerprint_action"
-        android:summary="@string/advance_settings_fingerprint_action_summary"
-        android:title="@string/advance_settings_fingerprint_action" />
+        android:entries="@array/service_hardening_policy_names"
+        android:entryValues="@array/service_hardening_policy_values"
+        android:key="advance_settings_service_policy"
+        android:summary="@string/advance_settings_service_policy_summary"
+        android:title="@string/advance_settings_service_policy" />
 
     <ListPreference
         android:defaultValue="0"
@@ -26,9 +35,9 @@
 
     <ListPreference
         android:defaultValue="0"
-        android:entries="@array/service_hardening_policy_names"
-        android:entryValues="@array/service_hardening_policy_values"
-        android:key="advance_settings_service_policy"
-        android:summary="@string/advance_settings_service_policy_summary"
-        android:title="@string/advance_settings_service_policy" />
+        android:entries="@array/fingerprint_names"
+        android:entryValues="@array/fingerprint_values"
+        android:key="advance_settings_fingerprint_action"
+        android:summary="@string/advance_settings_fingerprint_action_summary"
+        android:title="@string/advance_settings_fingerprint_action" />
 </PreferenceScreen>
