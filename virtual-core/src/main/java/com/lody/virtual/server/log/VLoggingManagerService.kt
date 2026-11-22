@@ -6,6 +6,7 @@ import com.lody.virtual.client.ipc.VActivityManager
 import com.lody.virtual.remote.logging.LogMessageHolder
 import com.lody.virtual.server.IVirtualSettingsManager.ACTION_KILL_APP
 import com.lody.virtual.server.IVirtualSettingsManager.ACTION_TOAST
+import com.lody.virtual.server.IVirtualSettingsManager.POLICY_STRICT_HARDENING
 import com.lody.virtual.server.settings.VirtualSettingsService
 import com.virtualxposed.log.client.LogMessage
 import com.virtualxposed.log.server.IVLoggingService
@@ -85,66 +86,17 @@ object VLoggingManagerService : IVLoggingService.Stub() {
             Timber.e(it, "Failed to send long message to channel!")
         }
 
-        val logMessage = logMessageHolder.logMessage
-
         runCatching {
             Timber.i("Received log message: ${logMessageHolder.toPrettyJson()}")
         }.onFailure {
             Timber.e(it, "Failed to log message")
         }
 
-        if (logMessageHolder.dangerous && logMessage is LogMessage.FingerprintChange) {
-            runCatching {
-                val settings = VirtualSettingsService.get().fingerprintLogAction
-                when (settings) {
-                    ACTION_TOAST -> {
-                        CoroutineScope(Dispatchers.Main).launch {
-                            Toast.makeText(
-                                VirtualCore.get().context,
-                                "Suspicious fingerprint change detected!",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
+        enforceLogSecurity(logMessageHolder)
+    }
 
-                   ACTION_KILL_APP -> {
-                        val pkg = logMessageHolder.packageName
-                        val userId = logMessageHolder.userId
-
-                        VActivityManager.get().killAppByPkg(pkg, userId)
-                        CoroutineScope(Dispatchers.Main).launch {
-                            Toast.makeText(
-                                VirtualCore.get().context,
-                                "App killed due to suspicious fingerprint change!",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
-                }
-            }.onFailure {
-                Timber.e(it)
-            }
-        }
-
+    fun enforceLogSecurity(logMessageHolder: LogMessageHolder) {
         if (logMessageHolder.dangerous) {
-            when (logMessage) {
-                is LogMessage.HookArgumentsRewrite, is LogMessage.HookReturnRewrite, is LogMessage.HookExceptionMismatch -> {
-                    val pkg = logMessageHolder.packageName
-                    val userId = logMessageHolder.userId
-
-                    VActivityManager.get().killAppByPkg(pkg, userId)
-                    CoroutineScope(Dispatchers.Main).launch {
-                        Toast.makeText(
-                            VirtualCore.get().context,
-                            "App killed due to disallowed return value rewriting!",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-
-                else -> {}
-            }
-
             runCatching {
                 val settings = VirtualSettingsService.get().dangerousGuestAction
                 when (settings) {
@@ -170,10 +122,83 @@ object VLoggingManagerService : IVLoggingService.Stub() {
                                 Toast.LENGTH_LONG
                             ).show()
                         }
+
+                        return
                     }
                 }
             }.onFailure {
                 Timber.e(it)
+            }
+
+            val logMessage = logMessageHolder.logMessage
+            when (logMessage) {
+                is LogMessage.HookArgumentsRewrite, is LogMessage.HookReturnRewrite, is LogMessage.HookExceptionMismatch -> {
+                    val pkg = logMessageHolder.packageName
+                    val userId = logMessageHolder.userId
+
+                    VActivityManager.get().killAppByPkg(pkg, userId)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        Toast.makeText(
+                            VirtualCore.get().context,
+                            "App killed due to disallowed return value rewriting!",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+
+                is LogMessage.FingerprintChange -> runCatching {
+                    val settings = VirtualSettingsService.get().fingerprintLogAction
+                    when (settings) {
+                        ACTION_TOAST -> {
+                            CoroutineScope(Dispatchers.Main).launch {
+                                Toast.makeText(
+                                    VirtualCore.get().context,
+                                    "Suspicious fingerprint change detected!",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+
+                        ACTION_KILL_APP -> {
+                            val pkg = logMessageHolder.packageName
+                            val userId = logMessageHolder.userId
+
+                            VActivityManager.get().killAppByPkg(pkg, userId)
+                            CoroutineScope(Dispatchers.Main).launch {
+                                Toast.makeText(
+                                    VirtualCore.get().context,
+                                    "App killed due to suspicious fingerprint change!",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    }
+                }.onFailure {
+                    Timber.e(it)
+                }
+
+                is LogMessage.GetService,
+                is LogMessage.GetActivity,
+                is LogMessage.GetProvider,
+                is LogMessage.GetReceiver,
+                is LogMessage.BindService,
+                is LogMessage.BroadCastReceived -> {
+                    if (VirtualSettingsService.get().servicePolicy == POLICY_STRICT_HARDENING) {
+                        val pkg = logMessageHolder.packageName
+                        val userId = logMessageHolder.userId
+
+                        VActivityManager.get().killAppByPkg(pkg, userId)
+                        CoroutineScope(Dispatchers.Main).launch {
+                            Toast.makeText(
+                                VirtualCore.get().context,
+                                "App killed due to dangerous service usage!",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+
+                else -> {}
             }
         }
     }

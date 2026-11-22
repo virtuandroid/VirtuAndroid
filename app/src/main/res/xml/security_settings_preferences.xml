@@ -12,7 +12,6 @@
     <SwitchPreference
         android:defaultValue="true"
         android:key="security_settings_enable_seccomp"
-        android:persistent="true"
         android:summary="@string/security_settings_enable_seccomp_summary"
         android:title="@string/security_settings_enable_seccomp" />
 

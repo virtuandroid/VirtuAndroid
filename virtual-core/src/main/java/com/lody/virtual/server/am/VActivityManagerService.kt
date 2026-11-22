@@ -460,12 +460,7 @@ object VActivityManagerService : IActivityManager.Stub() {
         // resolveServiceInfo gives null if permissions are not met
         val serviceInfo: ServiceInfo = resolveServiceInfo(service, userId) ?: return 0
 
-        val component = service.component
-        val logMessage: LogMessage = LogMessage.BindService(
-            serviceInfo.packageName,
-            component?.className ?: "",
-            serviceInfo.exported
-        )
+        val logMessage: LogMessage = LogMessage.BindService(serviceInfo)
         val holder = LogMessageHolder.Builder(logMessage).build()
         VLoggingManagerService.get().log(holder)
 
@@ -833,8 +828,7 @@ object VActivityManagerService : IActivityManager.Stub() {
 
         val message: LogMessage = AppDeath()
         val holder = LogMessageHolder.Builder(message)
-            .setPackageName(record.processName ?: "")
-            .setUserId(record.userId)
+            .setPackage(record.processName ?: "", record.userId)
             .setPid(record.pid)
             .build()
 
@@ -1184,14 +1178,6 @@ object VActivityManagerService : IActivityManager.Stub() {
             // restore to origin action.
             realIntent.setAction(originAction)
         }
-
-        val message = BroadCastReceived(realIntent.action ?: "", info.packageName)
-        VLoggingManagerService.get().log(
-            LogMessageHolder.Builder(message)
-                .setPackageName(callingPackage)
-                .setUserId(callingUserId)
-                .build()
-        )
 
         handleStaticBroadcastAsUser(vuid, info, realIntent, result)
         return true

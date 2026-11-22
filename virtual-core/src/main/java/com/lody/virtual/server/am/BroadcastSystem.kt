@@ -14,6 +14,7 @@ import android.os.Process
 import androidx.core.content.ContextCompat
 import com.lody.virtual.IntentHelper.BROADCAST_CALLING_PACKAGE
 import com.lody.virtual.IntentHelper.BROADCAST_SPECIFIC_PACKAGE
+import com.lody.virtual.IntentHelper.INTENT_EMBEDDED
 import com.lody.virtual.IntentHelper.INTENT_USER_ID
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.client.env.SpecialComponentList
@@ -22,10 +23,13 @@ import com.lody.virtual.helper.collection.ArrayMap
 import com.lody.virtual.helper.utils.VLog
 import com.lody.virtual.os.VBinder
 import com.lody.virtual.remote.PendingResultData
+import com.lody.virtual.remote.logging.LogMessageHolder
+import com.lody.virtual.server.log.VLoggingManagerService
 import com.lody.virtual.server.pm.PackageSetting
 import com.lody.virtual.server.pm.VAppManagerService
 import com.lody.virtual.server.pm.parser.VPackage
 import com.lody.virtual.server.security.SecurityUtils
+import com.virtualxposed.log.client.LogMessage
 import mirror.android.app.ContextImpl
 import mirror.android.app.LoadedApkHuaWei
 import mirror.android.rms.resource.ReceiverResourceLP
@@ -226,12 +230,21 @@ class BroadcastSystem private constructor(
             val callingUserId = intent.getIntExtra(INTENT_USER_ID, -1).takeIf { it >= 0 } ?: return
             val uid = VPackageManager.get().getPackageUid(callingPackage, callingUserId)
 
+            val realIntent = intent.getParcelableExtra<Intent?>(INTENT_EMBEDDED)
+            val message = LogMessage.BroadCastReceived(realIntent?.action ?: "", info)
+            VLoggingManagerService.get().log(
+                LogMessageHolder.Builder(message)
+                    .setPackage(callingPackage, callingUserId)
+                    .build()
+            )
+
             // Disallow private receivers
             val isBroadCastAllowed = SecurityUtils.isBroadcastAllowed(info, uid)
             if (!isBroadCastAllowed) {
                 Timber.i("Blocked package $callingPackage from sending a broadcast to ${info.name}")
                 return
             }
+
             if (mApp.isBooting) {
                 return
             }

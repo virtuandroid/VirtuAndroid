@@ -1,11 +1,16 @@
 package com.virtualxposed.log.client
 
 import android.annotation.SuppressLint
+import android.content.pm.ActivityInfo
+import android.content.pm.ProviderInfo
+import android.content.pm.ServiceInfo
 import android.os.Parcel
 import android.os.Parcelable
+import com.virtualxposed.utils.Utils.readParcelableSafe
 import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.JsonClassDiscriminator
 import java.lang.reflect.Constructor
 import java.lang.reflect.Member
@@ -33,7 +38,7 @@ sealed class LogMessage : Parcelable {
         val CREATOR: Parcelable.Creator<LogMessage> = object : Parcelable.Creator<LogMessage> {
             override fun createFromParcel(parcel: Parcel): LogMessage? {
                 return runCatching {
-                    val type = parcel.readParcelable<LogType>(LogType::class.java.classLoader)
+                    val type = parcel.readParcelableSafe<LogType>()
                     when (type) {
                         LogType.HookAttach -> HookAttach(parcel)
                         LogType.AppLoad -> AppLoad()
@@ -234,12 +239,17 @@ sealed class LogMessage : Parcelable {
     data class BroadCastReceived(
         // This could be a real Intent, but that makes JSON serialization tricky
         val action: String,
-        val destinationPackage: String?,
+        @Transient
+        val activityInfo: ActivityInfo? = null
     ) : LogMessage() {
+        val destinationPackage: String? = activityInfo?.packageName
+
         override val logType = LogType.BroadcastReceived
 
-
-        constructor(parcel: Parcel) : this(parcel.readString()!!, parcel.readString()!!)
+        constructor(parcel: Parcel) : this(
+            parcel.readString()!!,
+            parcel.readParcelableSafe<ActivityInfo>()
+        )
 
         override fun writeToParcel(parcel: Parcel, flags: Int) {
             super.writeToParcel(parcel, flags)
@@ -267,7 +277,7 @@ sealed class LogMessage : Parcelable {
 
         constructor(parcel: Parcel) : this(
             parcel.readString()!!,
-            parcel.readParcelable<CodeLoadMethod>(CodeLoadMethod::class.java.classLoader)!!
+            parcel.readParcelableSafe<CodeLoadMethod>()!!
         )
 
         override fun writeToParcel(parcel: Parcel, flags: Int) {
@@ -294,114 +304,108 @@ sealed class LogMessage : Parcelable {
 
     @Serializable
     data class BindService(
-        val packageName: String,
-        val componentName: String,
-        val isExported: Boolean,
+        @Transient
+        val serviceInfo: ServiceInfo? = null
     ) : LogMessage() {
         override val logType = LogType.BindService
 
+        val packageName: String? = serviceInfo?.packageName
+        val componentName: String? = serviceInfo?.name
+        val isExported: Boolean? = serviceInfo?.exported
+
         constructor(parcel: Parcel) : this(
-            parcel.readString()!!,
-            parcel.readString()!!,
-            parcel.readInt() == 1
+            parcel.readParcelableSafe<ServiceInfo>()
         )
 
         override fun writeToParcel(parcel: Parcel, flags: Int) {
             super.writeToParcel(parcel, flags)
-            parcel.writeString(packageName)
-            parcel.writeString(componentName)
-            parcel.writeInt(if (isExported) 1 else 0)
+            parcel.writeParcelable(serviceInfo, flags)
         }
     }
 
 
     @Serializable
     data class GetService(
-        val packageName: String,
-        val componentName: String,
-        val isExported: Boolean,
+        @Transient
+        val serviceInfo: ServiceInfo? = null,
     ) : LogMessage() {
+        val packageName: String? = serviceInfo?.packageName
+        val componentName: String? = serviceInfo?.name
+        val isExported: Boolean? = serviceInfo?.exported
+
         override val logType = LogType.GetService
 
         constructor(parcel: Parcel) : this(
-            parcel.readString()!!,
-            parcel.readString()!!,
-            parcel.readInt() == 1
+            parcel.readParcelableSafe<ServiceInfo>()
         )
 
         override fun writeToParcel(parcel: Parcel, flags: Int) {
             super.writeToParcel(parcel, flags)
-            parcel.writeString(packageName)
-            parcel.writeString(componentName)
-            parcel.writeInt(if (isExported) 1 else 0)
+            parcel.writeParcelable(serviceInfo, flags)
         }
     }
 
     @Serializable
     data class GetProvider(
-        val packageName: String,
-        val componentName: String,
-        val isExported: Boolean,
+        @Transient
+        val providerInfo: ProviderInfo? = null
     ) : LogMessage() {
         override val logType = LogType.GetProvider
 
+        val packageName: String? = providerInfo?.packageName
+        val componentName: String? = providerInfo?.name
+        val isExported: Boolean? = providerInfo?.exported
 
         constructor(parcel: Parcel) : this(
-            parcel.readString()!!,
-            parcel.readString()!!,
-            parcel.readInt() == 1
+            parcel.readParcelableSafe<ProviderInfo>()
         )
 
         override fun writeToParcel(parcel: Parcel, flags: Int) {
             super.writeToParcel(parcel, flags)
-            parcel.writeString(packageName)
-            parcel.writeString(componentName)
-            parcel.writeInt(if (isExported) 1 else 0)
+            parcel.writeParcelable(providerInfo, flags)
         }
     }
 
     @Serializable
     data class GetActivity(
-        val packageName: String,
-        val componentName: String,
-        val isExported: Boolean,
+        @Transient
+        val activityInfo: ActivityInfo? = null
     ) : LogMessage() {
         override val logType = LogType.GetActivity
 
+        val packageName: String? = activityInfo?.packageName
+        val componentName: String? = activityInfo?.name
+        val isExported: Boolean? = activityInfo?.exported
+
         constructor(parcel: Parcel) : this(
-            parcel.readString()!!,
-            parcel.readString()!!,
-            parcel.readInt() == 1
+            parcel.readParcelableSafe<ActivityInfo>()
         )
 
         override fun writeToParcel(parcel: Parcel, flags: Int) {
             super.writeToParcel(parcel, flags)
-            parcel.writeString(packageName)
-            parcel.writeString(componentName)
-            parcel.writeInt(if (isExported) 1 else 0)
+            parcel.writeParcelable(activityInfo, flags)
         }
     }
 
 
     @Serializable
     data class GetReceiver(
-        val packageName: String,
-        val componentName: String,
-        val isExported: Boolean,
+        @Transient
+        val activityInfo: ActivityInfo? = null,
     ) : LogMessage() {
+        val packageName: String? = activityInfo?.packageName
+        val componentName: String? = activityInfo?.name
+        val isExported: Boolean? = activityInfo?.exported
+
         override val logType = LogType.GetReceiver
 
         constructor(parcel: Parcel) : this(
-            parcel.readString()!!,
-            parcel.readString()!!,
-            parcel.readInt() == 1
+            parcel.readParcelableSafe<ActivityInfo>()
         )
 
         override fun writeToParcel(parcel: Parcel, flags: Int) {
             super.writeToParcel(parcel, flags)
-            parcel.writeString(packageName)
-            parcel.writeString(componentName)
-            parcel.writeInt(if (isExported) 1 else 0)
+            parcel.writeParcelable(activityInfo, flags)
         }
     }
 

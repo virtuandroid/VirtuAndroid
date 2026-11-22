@@ -6,6 +6,9 @@ import android.content.pm.ProviderInfo
 import android.content.pm.ResolveInfo
 import android.content.pm.ServiceInfo
 import android.os.Process
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
 import android.widget.Toast
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.client.ipc.VActivityManager
@@ -28,7 +31,6 @@ object SecurityUtils {
     private val permissionManager by lazy {
         VPermissionManager.get()
     }
-
     fun getSecurityPolicy(): Int {
         return if (VirtualCore.get().isServerProcess) {
             VirtualSettingsService.servicePolicy
@@ -38,7 +40,6 @@ object SecurityUtils {
     }
 
     fun Int.isNone(): Boolean = this == POLICY_NONE
-    fun Int.isStrict(): Boolean = this == POLICY_STRICT_HARDENING
 
     fun throwSecurityException(message: String) {
         val policy = getSecurityPolicy()
@@ -46,20 +47,6 @@ object SecurityUtils {
 
         if (policy.isNone()) {
             return
-        }
-
-        if (policy.isStrict()) {
-            runCatching {
-                val pid = VBinder.getCallingPid()
-                Process.killProcess(pid)
-                CoroutineScope(Dispatchers.Main).launch {
-                    Toast.makeText(
-                        VirtualCore.get().context,
-                        "Killed process due to security exception: $message",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
         }
 
         throw SecurityException(message)
@@ -186,30 +173,33 @@ object SecurityUtils {
         )
     }
 
-    fun isServiceAllowed(service: ServiceInfo): Boolean {
+    fun isServiceAllowed(service: ServiceInfo, callingUid: Int = getCallingUidSafe()): Boolean {
         return isIpcAllowed(
             service.packageName,
             service.exported,
             service.permission,
-            service.applicationInfo.uid
+            service.applicationInfo.uid,
+            callingUid
         )
     }
 
-    fun isActivityAllowed(activity: ActivityInfo): Boolean {
+    fun isActivityAllowed(activity: ActivityInfo, callingUid: Int = getCallingUidSafe()): Boolean {
         return isIpcAllowed(
             activity.packageName,
             activity.exported,
             activity.permission,
-            activity.applicationInfo.uid
+            activity.applicationInfo.uid,
+            callingUid
         )
     }
 
-    fun isProviderAllowed(provider: ProviderInfo): Boolean {
+    fun isProviderAllowed(provider: ProviderInfo, callingUid: Int = getCallingUidSafe()): Boolean {
         return isIpcAllowed(
             provider.packageName,
             provider.exported,
             provider.writePermission,
-            provider.applicationInfo.uid
+            provider.applicationInfo.uid,
+            callingUid
         )
     }
 
@@ -278,20 +268,5 @@ object SecurityUtils {
             permission,
             callingUid
         ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun isIpcAllowed(
-        servicePackage: String,
-        exported: Boolean,
-        permission: String?,
-        uid: Int
-    ): Boolean {
-        return isIpcAllowed(
-            servicePackage,
-            exported,
-            permission,
-            uid,
-            getCallingUidSafe(),
-        )
     }
 }

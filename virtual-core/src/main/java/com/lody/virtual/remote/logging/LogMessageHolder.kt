@@ -2,13 +2,12 @@ package com.lody.virtual.remote.logging
 
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.system.Os
-import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.os.VBinder
 import com.lody.virtual.os.VEnvironment
 import com.lody.virtual.os.VEnvironment.getPackageResourcePath
 import com.lody.virtual.server.permission.VPermissionManager
 import com.lody.virtual.server.pm.VPackageManagerService
+import com.lody.virtual.server.security.SecurityUtils
 import com.virtualxposed.log.client.LogMessage
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
@@ -36,39 +35,33 @@ class LogMessageHolder private constructor(
     val userId: Int
 ) {
     class Builder(private val logMessage: LogMessage) {
+        private var initialCallingUid: Int? = VBinder.getCallingUid()
         private var pid: Int = VBinder.getCallingPid()
         private var userId: Int = VBinder.getCallingUserHandle().identifier
-
         private var packageName: String? =
-            VPackageManagerService.get().getNameForUid(VBinder.getCallingUid())
-        private var timestamp: Long = System.currentTimeMillis()
+            VPackageManagerService.get().getNameForUid(initialCallingUid!!)
+        private val timestamp: Long = System.currentTimeMillis()
 
         fun setPid(pid: Int): Builder {
             this.pid = pid
+            this.initialCallingUid = null
             return this
         }
 
-        fun setUserId(uid: Int): Builder {
-            this.userId = uid
-            return this
-        }
-
-        fun setPackageName(packageName: String): Builder {
+        fun setPackage(packageName: String, userId: Int): Builder {
             this.packageName = packageName
-            return this
-        }
-
-        fun setHostPackage(): Builder {
-            if (VirtualCore.get().isServerProcess) {
-                this.packageName = VirtualCore.get().processName
-                this.pid = Os.getpid()
-            }
+            this.userId = userId
+            this.initialCallingUid = null
             return this
         }
 
         fun build(): LogMessageHolder {
+            val callingUid by lazy {
+                initialCallingUid ?: VPackageManagerService.get()
+                    .getPackageUid(packageName!!, userId)
+            }
+
             val dangerous = when (logMessage) {
-                // TODO Fix SO names not having paths
                 is LogMessage.CodeLoad -> {
                     val appDir = VEnvironment.getDataAppDirectory().absolutePath
 
@@ -87,30 +80,57 @@ class LogMessageHolder private constructor(
                     // Apps can load so files without an absolute path such as "mapper.ranchu.so"
                     // which is difficult to resolve to an absolute path
                     // For now we cannot guarantee that they are dangerous
-                    val isNativeUndeterminedPath = logMessage.codeLoadMethod == LogMessage.CodeLoadMethod.Native && !logMessage.path.startsWith("/")
+                    val isNativeUndeterminedPath =
+                        logMessage.codeLoadMethod == LogMessage.CodeLoadMethod.Native && !logMessage.path.startsWith(
+                            "/"
+                        )
 
                     !isSystem && !isBundledCode && !isNativeUndeterminedPath
                 }
+
                 // Apps should never access each others non-exported services, it breaks the Android Sandbox
-                // TODO Add permission checks?
                 is LogMessage.GetService -> {
-                    logMessage.packageName != packageName && !logMessage.isExported
+                    val serviceInfo = logMessage.serviceInfo
+                    serviceInfo != null && SecurityUtils.isServiceAllowed(serviceInfo, callingUid)
+                        .not()
                 }
 
                 is LogMessage.BindService -> {
-                    logMessage.packageName != packageName && !logMessage.isExported
+                    val serviceInfo = logMessage.serviceInfo
+                    serviceInfo != null && SecurityUtils.isServiceAllowed(serviceInfo, callingUid)
+                        .not()
                 }
 
                 is LogMessage.GetProvider -> {
-                    logMessage.packageName != packageName && !logMessage.isExported
+                    val providerInfo = logMessage.providerInfo
+                    providerInfo != null && SecurityUtils.isProviderAllowed(
+                        providerInfo,
+                        callingUid
+                    ).not()
                 }
 
                 is LogMessage.GetActivity -> {
-                    logMessage.packageName != packageName && !logMessage.isExported
+                    val activityInfo = logMessage.activityInfo
+                    activityInfo != null && SecurityUtils.isActivityAllowed(
+                        activityInfo,
+                        callingUid
+                    ).not()
                 }
 
                 is LogMessage.GetReceiver -> {
-                    logMessage.packageName != packageName && !logMessage.isExported
+                    val activityInfo = logMessage.activityInfo
+                    activityInfo != null && SecurityUtils.isActivityAllowed(
+                        activityInfo,
+                        callingUid
+                    ).not()
+                }
+
+                is LogMessage.BroadCastReceived -> {
+                    val activityInfo = logMessage.activityInfo
+                    activityInfo != null && SecurityUtils.isActivityAllowed(
+                        activityInfo,
+                        callingUid
+                    ).not()
                 }
 
                 is LogMessage.FingerprintChange -> {
@@ -144,8 +164,7 @@ class LogMessageHolder private constructor(
                 is LogMessage.UsePermission -> {
                     val permission = logMessage.permission
                     val isGranted = runCatching {
-                        VPermissionManager.get()
-                            .checkPermission(permission, VBinder.getCallingUid())
+                        VPermissionManager.get().checkPermission(permission, callingUid)
                     }.getOrNull() == PackageManager.PERMISSION_GRANTED
 
                     !isGranted

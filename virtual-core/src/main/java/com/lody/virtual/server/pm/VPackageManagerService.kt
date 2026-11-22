@@ -169,7 +169,7 @@ class VPackageManagerService : IPackageManager.Stub() {
         return null
     }
 
-    override fun checkPermission(permName: String?, pkgName: String?, userId: Int): Int {
+    override fun checkPermission(permName: String?, pkgName: String, userId: Int): Int {
         if ("android.permission.INTERACT_ACROSS_USERS" == permName
             || "android.permission.INTERACT_ACROSS_USERS_FULL" == permName
         ) {
@@ -249,11 +249,7 @@ class VPackageManagerService : IPackageManager.Stub() {
                     userId
                 )
 
-                val logMessage: LogMessage = LogMessage.GetActivity(
-                    component.packageName,
-                    component.className,
-                    activityInfo.exported
-                )
+                val logMessage: LogMessage = LogMessage.GetActivity(activityInfo)
 
                 val holder = LogMessageHolder.Builder(logMessage).build()
                 VLoggingManagerService.get().log(holder)
@@ -305,11 +301,7 @@ class VPackageManagerService : IPackageManager.Stub() {
                     userId
                 )
 
-                val logMessage: LogMessage = LogMessage.GetReceiver(
-                    component.packageName,
-                    component.className,
-                    receiverInfo.exported
-                )
+                val logMessage: LogMessage = LogMessage.GetReceiver(receiverInfo)
                 val holder = LogMessageHolder.Builder(logMessage).build()
                 VLoggingManagerService.get().log(holder)
 
@@ -344,11 +336,7 @@ class VPackageManagerService : IPackageManager.Stub() {
                     ps.readUserState(userId),
                     userId
                 )
-                val logMessage: LogMessage = GetService(
-                    component.packageName,
-                    component.className,
-                    s.info.exported
-                )
+                val logMessage: LogMessage = GetService(serviceInfo)
                 val holder = LogMessageHolder.Builder(logMessage).build()
                 VLoggingManagerService.get().log(holder)
 
@@ -375,20 +363,16 @@ class VPackageManagerService : IPackageManager.Stub() {
             val ps = p.mExtras
             val provider = mProvidersByComponent[component.packageName]?.get(component)
             if (provider != null) {
-                val logMessage: LogMessage = LogMessage.BindService(
-                    provider.owner.packageName,
-                    component.className,
-                    provider.info.exported
-                )
-                val holder = LogMessageHolder.Builder(logMessage).build()
-                VLoggingManagerService.get().log(holder)
-
                 val providerInfo = PackageParserEx.generateProviderInfo(
                     provider,
                     flags,
                     ps.readUserState(userId),
                     userId
                 )
+
+                val logMessage: LogMessage = LogMessage.GetProvider(providerInfo)
+                val holder = LogMessageHolder.Builder(logMessage).build()
+                VLoggingManagerService.get().log(holder)
 
                 if (!isProviderAllowed(providerInfo)) {
                     SecurityUtils.throwSecurityException("Unable to access non-exported provider in " + p.packageName + " from " + callingPackage)
@@ -805,11 +789,7 @@ class VPackageManagerService : IPackageManager.Stub() {
         )
         if (providerInfo != null) {
             VLoggingClient.get().log(
-                GetProvider(
-                    providerInfo.packageName,
-                    provider.getComponentName().className,
-                    providerInfo.exported
-                )
+                GetProvider(providerInfo)
             )
             val p = mPackages[providerInfo.packageName]
 
@@ -859,7 +839,7 @@ class VPackageManagerService : IPackageManager.Stub() {
         }
     }
 
-    override fun getPackageUid(packageName: String?, userId: Int): Int {
+    override fun getPackageUid(packageName: String, userId: Int): Int {
         checkUserId(userId)
         enforceCallingUser(userId)
 
