@@ -103,6 +103,9 @@ class VPackageManagerService : IPackageManager.Stub() {
             mReceivers.addActivity(a, "receiver")
         }
 
+        mProvidersByAuthority[pkg.packageName] = ConcurrentHashMap()
+        mProvidersByComponent[pkg.packageName] = ConcurrentHashMap()
+
         pkg.providers.forEach { p ->
             if (p.info.processName == null) {
                 p.info.processName = p.info.packageName
@@ -111,11 +114,9 @@ class VPackageManagerService : IPackageManager.Stub() {
             val names: Array<String> =
                 p.info.authority.split(";".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()
 
-            mProvidersByAuthority[pkg.packageName] = ConcurrentHashMap()
             names.forEach { name ->
                 mProvidersByAuthority[pkg.packageName]?.set(name, p)
             }
-            mProvidersByComponent[pkg.packageName] = ConcurrentHashMap()
             mProvidersByComponent[pkg.packageName]?.set(p.getComponentName(), p)
         }
 
