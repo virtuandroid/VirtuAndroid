@@ -1009,8 +1009,7 @@ object VActivityManagerService : IActivityManager.Stub() {
 
     override fun killAllApps() {
         val caller = VBinder.getCallingUid()
-        // TODO Make a helper function to check system pid or engine pid
-        val isSystem = VBinder.getCallingPid() == systemPid
+        val isSystem = caller == systemPid
 
         processTable.value.all.forEach {
             if (isSystem || it.vuid == caller) {
