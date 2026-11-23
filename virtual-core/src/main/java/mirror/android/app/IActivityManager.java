@@ -19,7 +19,7 @@ public class IActivityManager {
     @MethodParams({IBinder.class, String.class, int.class, int.class})
     public static RefMethod<Void> overridePendingTransition;
     public static RefMethod<Integer> startActivity;
-    public static RefMethod<Integer> startActivities;
+    public static RefMethod<Integer> startActivities; // TODO Missing?
 
     public static class ContentProviderHolder {
         public static Class<?> TYPE = RefClass.load(ContentProviderHolder.class, "android.app.IActivityManager$ContentProviderHolder");

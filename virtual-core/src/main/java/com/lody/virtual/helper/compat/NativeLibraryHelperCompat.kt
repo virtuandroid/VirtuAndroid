@@ -84,7 +84,19 @@ object NativeLibraryHelperCompat {
         // Seems like newer Android versions with split APKs use directories instead
         if (apkFile.isDirectory) {
             val entries = File(apkFile, "lib").listFiles()
-            val abis = entries?.filter { it.isDirectory }?.map { it.name }?.toSet()
+            val abis = entries?.filter { it.isDirectory }?.map {
+                when (it.name) {
+                    "arm64" -> {
+                        "arm64-v8a"
+                    }
+                    "arm" -> {
+                        "armeabi-v7a"
+                    }
+                    else -> {
+                        it.name
+                    }
+                }
+            }?.toSet()
             return abis ?: emptySet()
         } else if (apkFile.isFile) {
             try {
