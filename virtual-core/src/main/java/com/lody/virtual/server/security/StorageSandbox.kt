@@ -63,6 +63,8 @@ class StorageSandbox {
     fun initSandboxForPid(info: ApplicationInfo, pid: Int) {
         val userId = VUserHandle.getUserId(info.uid)
         val hostPkg = VirtualCore.get().hostPkg
+        Timber.i("Init sandbox for ${info.packageName} on pid $pid")
+        val hostUser = 0
 
         // Only allow the app to inspect its own proc
         whitelistPaths("/proc/$pid")
@@ -111,6 +113,10 @@ class StorageSandbox {
 
         // Read the base apk of VirtualXposed
         whitelistPaths("/data/app")
+        whitelistPaths("/data/user/$hostUser/$hostPkg/virtual/data/app", readOnly = true)
+        whitelistPaths("/data/data/$hostPkg/virtual/data/app", readOnly = true)
+
+        whitelistPaths("/data/data/$hostPkg/files/.disable_xposed", readOnly = true)
 
         val deviceInfo = VDeviceManager.get().getDeviceInfo(userId)
         val wifiMacAddressFile = deviceInfo.getWifiFile(userId).path
@@ -137,7 +143,7 @@ class StorageSandbox {
     }
 
     fun isFlagAllowed(absolutePath: ByteArray, permission: Int): Boolean {
-        return isFlagAllowed(absolutePath.decodeToString(), ruleList.value, permission)
+        return isFlagAllowed(absolutePath.decodeToString(), permission)
     }
 
     fun getRedirectPath(path: String): String {
