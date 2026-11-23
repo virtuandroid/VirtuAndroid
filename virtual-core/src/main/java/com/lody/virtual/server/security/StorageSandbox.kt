@@ -14,7 +14,7 @@ import timber.log.Timber
 import java.io.File
 
 /**
- * A path is only allowed if the deepest rule is [ALLOW].
+ * A path is only allowed if the deepest rule is [READ] or [WRITE].
  *
  * 1. All paths are blocked by default.
  * 2. Specific directories can be whitelisted

@@ -3,11 +3,6 @@
 #include <climits>
 #include <cstdint>
 
-#define BROKER_MAGIC    0xB975C2 // Something random
-#define BROKER_MAX_BLOB 256    // sockaddr, timespec[2]
-#define BROKER_MAX_OUT  4096   // stat, statfs, readlink, getcwd
-
-// --- per-arch register access ---------------------------------------
 #if defined(__aarch64__)
 #define AUDIT_ARCH_CURRENT AUDIT_ARCH_AARCH64
 #elif defined(__x86_64__)
