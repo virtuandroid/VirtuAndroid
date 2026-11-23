@@ -144,8 +144,7 @@ class SecuritySettingsActivity : VActivity() {
             fingerprintAction = findPreference(FINGERPRINT_INCONSISTENT)!!
             dangerousAction = findPreference(DANGEROUS_ACTION)!!
             servicePolicy = findPreference(SERVICE_POLICY)!!
-            this@AdvancedSettingsFragment.permissionBypassAction =
-                findPreference(PERMISSION_ACTION)!!
+            permissionBypassAction = findPreference(PERMISSION_ACTION)!!
 
             generalPolicy.onUserChange { value ->
                 GeneralPolicy.fromValue(value)?.let(::selectMode)
@@ -160,8 +159,8 @@ class SecuritySettingsActivity : VActivity() {
             servicePolicy.onUserChange { value ->
                 value.convertToInt()?.let { edit { copy(servicePolicy = it) } }
             }
-            servicePolicy.onUserChange { value ->
-                value.convertToInt()?.let { edit { copy(servicePolicy = it) } }
+            permissionBypassAction.onUserChange { value ->
+                value.convertToInt()?.let { edit { copy(permissionBypassAction = it) } }
             }
 
             lifecycleScope.launch {
