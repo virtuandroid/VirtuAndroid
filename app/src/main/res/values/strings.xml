@@ -194,8 +194,8 @@
     <string name="advance_settings_fingerprint_action">Fingerprint inconsistency action</string>
     <string name="advance_settings_fingerprint_action_summary">Manage host action when the device fingerprint has been altered</string>
 
-    <string name="advance_settings_general_policy">VirtualXposed security policy</string>
-    <string name="advance_settings_general_policy_summary">Manage the VirtualXposed security policy</string>
+    <string name="advance_settings_general_policy">VirtualXposed security profile</string>
+    <string name="advance_settings_general_policy_summary">Select a preset of security policies, or set custom policy options</string>
 
     <string name="advance_settings_dangerous_action">Dangerous log action</string>
     <string name="advance_settings_dangerous_action_summary">Manage host action when a dangerous log is received from a guest process. The danger detection may trigger on false positives</string>
