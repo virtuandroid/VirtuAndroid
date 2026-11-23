@@ -237,7 +237,7 @@
     <uses-feature
         android:name="android.hardware.camera.autofocus"
         android:required="false" />
-
+    <uses-permission android:name="android.permission.DETECT_SCREEN_CAPTURE" />
     <application>
         <service
             android:name=".server.mediastore.MediaProviderService"

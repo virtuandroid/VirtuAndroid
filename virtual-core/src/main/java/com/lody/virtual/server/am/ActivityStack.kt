@@ -157,7 +157,7 @@ internal class ActivityStack(private val mService: VActivityManagerService) {
                 runCatching { it.taskInfo?.id }.onFailure { Timber.e(it) }.getOrNull()
             }.toSet()
         } catch (e: Exception) {
-            Timber.e(e)
+            Timber.i(e)
             return
         }
 

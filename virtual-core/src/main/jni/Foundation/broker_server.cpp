@@ -209,15 +209,33 @@ static int read_cstr(Ctx &c, uint64_t addr, char *buf, size_t cap) {
 /* ========================================================================== */
 /* Path resolution + policy                                                   */
 /* ========================================================================== */
+
+// NewStringUTF can fail, better to use byte array and decode in kotlin
+static jbyteArray makeByteArray(JNIEnv* env, const char* path) {
+    if (path == nullptr) return nullptr;
+
+    const size_t len = std::strlen(path);
+    jbyteArray jbytes = env->NewByteArray(static_cast<jsize>(len));
+    if (jbytes == nullptr) {            // OOM, exception pending
+        env->ExceptionClear();
+        return nullptr;
+    }
+
+    env->SetByteArrayRegion(jbytes, 0, static_cast<jsize>(len),
+                            reinterpret_cast<const jbyte*>(path));
+    if (env->ExceptionCheck()) {        // ArrayIndexOutOfBounds etc.
+        env->ExceptionClear();
+        env->DeleteLocalRef(jbytes);
+        return nullptr;
+    }
+    return jbytes;
+}
+
 static bool getRedirectPath(const char *path, char out[PATH_MAX]) {
     JNIEnv *env = g_policy.env;
     if (!env) return false;
 
-    jstring jpath = env->NewStringUTF(path);
-    if (jpath == nullptr) {             // OOM or exception pending
-        env->ExceptionClear();
-        return false;
-    }
+    jbyteArray jpath = makeByteArray(env, path);
 
     auto jResult = (jstring) env->CallObjectMethod(g_policy.sandbox,
                                                    g_policy.redirect_method, jpath);
@@ -247,11 +265,7 @@ static bool isPathAllowed(const char *path, int mode) {
     JNIEnv *env = g_policy.env;
     if (!env || mode == 0) return false;
 
-    jstring jpath = env->NewStringUTF(path);
-    if (jpath == nullptr) {
-        env->ExceptionClear();
-        return false;
-    }
+    jbyteArray jpath = makeByteArray(env, path);
 
     jboolean allowed = env->CallBooleanMethod(g_policy.sandbox, g_policy.check_method,
                                               jpath, (jint) mode);
@@ -1143,13 +1157,13 @@ Java_com_lody_virtual_server_security_SyscallBroker_serverServe(JNIEnv *env, job
                                                                 jint fd, jint pid,
                                                                 jobject sandbox, jstring cwd) {
     jclass cls = env->GetObjectClass(sandbox);
-    jmethodID check_method = env->GetMethodID(cls, "isFlagAllowed", "(Ljava/lang/String;I)Z");
+    jmethodID check_method = env->GetMethodID(cls, "isFlagAllowed", "([BI)Z");
     if (check_method == nullptr) {
         env->ExceptionClear();
         return;
     }
     jmethodID redirect_method = env->GetMethodID(cls, "getRedirectPath",
-                                                 "(Ljava/lang/String;)Ljava/lang/String;");
+                                                 "([B)Ljava/lang/String;");
     env->DeleteLocalRef(cls);
     if (redirect_method == nullptr) {
         env->ExceptionClear();

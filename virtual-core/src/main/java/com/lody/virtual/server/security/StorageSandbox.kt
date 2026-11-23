@@ -118,7 +118,11 @@ class StorageSandbox {
         redirectDirectory("/sys/class/net/eth0/address", wifiMacAddressFile)
         redirectDirectory("/sys/class/net/wifi/address", wifiMacAddressFile)
 
-        // TODO redirect /storage/emulated/0/Android/data/app_id
+        whitelistPaths("/storage/emulated/0/Android/data/$hostPkg/${info.packageName}")
+        redirectDirectory(
+            "/storage/emulated/0/Android/data/${info.packageName}",
+            "/storage/emulated/0/Android/data/$hostPkg/${info.packageName}"
+        )
     }
 
 
@@ -132,8 +136,16 @@ class StorageSandbox {
 //            }
     }
 
+    fun isFlagAllowed(absolutePath: ByteArray, permission: Int): Boolean {
+        return isFlagAllowed(absolutePath.decodeToString(), ruleList.value, permission)
+    }
+
     fun getRedirectPath(path: String): String {
         return getRedirectPath(path, ruleList.value.redirectMap)
+    }
+
+    fun getRedirectPath(path: ByteArray): String {
+        return getRedirectPath(path.decodeToString(), ruleList.value.redirectMap)
     }
 
     companion object {
