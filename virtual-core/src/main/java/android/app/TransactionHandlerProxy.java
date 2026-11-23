@@ -16,6 +16,7 @@ import android.util.Log;
 import android.util.MergedConfiguration;
 import android.view.DisplayAdjustments;
 import android.window.ActivityWindowInfo;
+import android.window.WindowContextInfo;
 
 import com.lody.virtual.client.VClientImpl;
 import com.lody.virtual.client.core.VirtualCore;
@@ -439,6 +440,11 @@ public class TransactionHandlerProxy extends ClientTransactionHandler {
     @Override
     public void handleNewIntent(IBinder token, List intents) {
         originalHandler.handleNewIntent(token, intents);
+    }
+
+    @Override
+    public void handleWindowContextInfoChanged(IBinder clientToken, WindowContextInfo info) {
+        originalHandler.handleWindowContextInfoChanged(clientToken, info);
     }
 
     @Override

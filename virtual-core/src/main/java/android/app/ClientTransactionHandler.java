@@ -315,4 +315,6 @@ public abstract class ClientTransactionHandler {
 
     /** Deliver new intent. */
     public abstract void handleNewIntent(IBinder token, List intents);
+
+    public abstract void handleWindowContextInfoChanged(android.os.IBinder clientToken, android.window.WindowContextInfo info);
 }
