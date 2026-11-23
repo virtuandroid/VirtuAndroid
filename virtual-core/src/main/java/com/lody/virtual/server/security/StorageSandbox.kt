@@ -67,9 +67,8 @@ class StorageSandbox {
         val hostUser = 0
 
         // Only allow the app to inspect its own proc
-        whitelistPaths("/proc/$pid")
+        whitelistPaths("/proc/$pid") // TODO implement checks for child processes
         whitelistPaths("/proc/sys")
-        whitelistPaths("/proc") // TODO implement checks for child processes
         whitelistPaths("/data/data/$hostPkg/.agent-logs") // TODO This is called sometimes ???
 
         // Important system directories required for runtime
