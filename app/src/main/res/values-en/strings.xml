@@ -1,6 +1,4 @@
 <resources>
     <!--Avoid to be Override By library-->
-    <string name="app_name">VirtualXposed</string>
-    <string name="versionchecklib_confirm">Upgrade now</string>
-    <string name="list_app_access_external_storage">If you want to install apk from external storage, please give VirtualXposed the permission.</string>
+    <string name="app_name">VirtuAndroid</string>
 </resources>

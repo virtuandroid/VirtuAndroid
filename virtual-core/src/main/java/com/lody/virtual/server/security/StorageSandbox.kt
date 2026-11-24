@@ -27,7 +27,9 @@ class StorageSandbox {
 
     data class RuleList(
         val directories: PersistentMap<String, Int> = persistentHashMapOf(),
-        val redirectMap: PersistentMap<String, String> = persistentHashMapOf()
+        val redirectMap: PersistentMap<String, String> = persistentHashMapOf(),
+        // Allow access to /proc/$pid
+        val allowCallingPidProc: Boolean = false
     )
 
     fun blocklistPaths(vararg paths: String) {
@@ -67,9 +69,10 @@ class StorageSandbox {
         val hostUser = 0
 
         // Only allow the app to inspect its own proc
-        whitelistPaths("/proc/$pid") // TODO implement checks for child processes
+        whitelistPaths("/proc/$pid")
         whitelistPaths("/proc/sys")
-        whitelistPaths("/data/data/$hostPkg/.agent-logs") // TODO This is called sometimes ???
+        // Allows all calling processes to access their own /proc/$pid
+        ruleList.update { it.copy(allowCallingPidProc = true) }
 
         // Important system directories required for runtime
         whitelistPaths(
@@ -141,8 +144,17 @@ class StorageSandbox {
 //            }
     }
 
-    fun isFlagAllowed(absolutePath: ByteArray, permission: Int): Boolean {
-        return isFlagAllowed(absolutePath.decodeToString(), permission)
+    fun isFlagAllowed(absolutePath: ByteArray, permission: Int, callingPid: Int): Boolean {
+        val path = absolutePath.decodeToString() // Safely handles UTF-8 decoding as opposed to C++
+
+        // Small exception to the constant rules to allow child processes to access their own proc
+        if (ruleList.value.allowCallingPidProc){
+            if (path.startsWith("/proc/$callingPid/") || path == "/proc/$callingPid") {
+                return true
+            }
+        }
+
+        return isFlagAllowed(path, permission)
     }
 
     fun getRedirectPath(path: String): String {
@@ -154,7 +166,6 @@ class StorageSandbox {
     }
 
     companion object {
-        // TODO actual per-directory permissions to support operations on parent dirs
         const val READ = 1
         const val WRITE = 1 shl 1
         const val READ_WRITE = READ or WRITE
@@ -171,6 +182,7 @@ class StorageSandbox {
             return setFlag(permission, path, ruleList)
         }
 
+        /** Must always be called before isPathAllowed, to normalize the path */
         fun getRedirectPath(path: String, redirectMap: Map<String, String>): String {
             val absolutePath = normalized(path)
 

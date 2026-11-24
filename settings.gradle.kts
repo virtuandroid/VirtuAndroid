@@ -3,4 +3,4 @@ plugins {
 }
 
 include(":virtual-core", ":app", ":launcher", ":xposed-core", ":shared-helper")
-rootProject.name = "VirtualXposed"
+rootProject.name = "VirtuAndroid"

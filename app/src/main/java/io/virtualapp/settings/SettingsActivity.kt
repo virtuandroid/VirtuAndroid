@@ -13,7 +13,6 @@ import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.server.log.VLoggingManagerService
 import io.virtualapp.VCommends
 import io.virtualapp.abs.ui.VActivity
-import io.virtualapp.compose.ui.AboutActivity
 import io.virtualapp.compose.ui.ModuleActivity
 import io.virtualapp.home.ListAppActivity
 import io.virtualapp.utils.FileUtils
@@ -105,12 +104,6 @@ class SettingsActivity : VActivity() {
                 false
             }
 
-
-            findPreference<Preference>(ABOUT_PREFERENCE)?.setOnPreferenceClickListener { _: Preference? ->
-                startActivity(Intent(activity, AboutActivity::class.java))
-                false
-            }
-
             findPreference<Preference>(REBOOT_PREFERENCE)?.setOnPreferenceClickListener { _: Preference? ->
                 val alertDialog = AlertDialog.Builder(activity)
                     .setTitle(io.virtualapp.R.string.settings_reboot_title)
@@ -120,7 +113,7 @@ class SettingsActivity : VActivity() {
                     ) { _: DialogInterface?, _: Int ->
                         VirtualCore.get().killAllApps()
                         Toast.makeText(
-                            activity, io.virtualapp.R.string.reboot_tips_1,
+                            activity, io.virtualapp.R.string.reboot_tips,
                             Toast.LENGTH_SHORT
                         ).show()
                     }

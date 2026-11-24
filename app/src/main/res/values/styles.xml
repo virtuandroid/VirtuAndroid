@@ -10,18 +10,7 @@
         <item name="android:textAllCaps">false</item>
     </style>
 
-    <style name="UITheme" parent="Theme.AppCompat.NoActionBar">
-        <item name="colorPrimary">@color/colorPrimary</item>
-        <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
-        <item name="colorAccent">@color/colorAccent</item>
-        <item name="android:textAllCaps">false</item>
-    </style>
-
-    <style name="VirtualXposedTheme" parent="Theme.AppCompat.Light.NoActionBar">
-        <item name="colorAccent">@color/colorAccent</item>
-    </style>
-
-    <style name="VirtualXposedMaterialTheme" parent="@android:style/Theme.Material.Light">
+    <style name="VirtuAndroidTheme" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="colorAccent">@color/colorAccent</item>
     </style>
 
@@ -45,9 +34,5 @@
     </style>
 
     <style name="VAAlertTheme" parent="Theme.AppCompat.Light.Dialog.Alert" />
-
-    <style name="AppTheme.AppBarOverlay" parent="ThemeOverlay.AppCompat.Dark.ActionBar" />
-
-    <style name="AppTheme.PopupOverlay" parent="ThemeOverlay.AppCompat.Light" />
 
 </resources>

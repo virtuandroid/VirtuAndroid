@@ -261,14 +261,14 @@ static bool getRedirectPath(const char *path, char out[PATH_MAX]) {
     return redirected;
 }
 
-static bool isPathAllowed(const char *path, int mode) {
+static bool isPathAllowed(const char *path, int mode, __u32 calling_pid) {
     JNIEnv *env = g_policy.env;
     if (!env || mode == 0) return false;
 
     jbyteArray jpath = makeByteArray(env, path);
 
     jboolean allowed = env->CallBooleanMethod(g_policy.sandbox, g_policy.check_method,
-                                              jpath, (jint) mode);
+                                              jpath, (jint) mode, calling_pid);
     env->DeleteLocalRef(jpath);
 
     if (env->ExceptionCheck()) {
@@ -362,7 +362,7 @@ static int resolve_path(Ctx &c, int dirfd, const char *raw, bool follow, std::st
     return 0;
 }
 
-static int authorize(const std::string &resolved, int mode, PathResult &r) {
+static int authorize(const std::string &resolved, int mode, PathResult &r, __u32 calling_pid) {
     char redirected[PATH_MAX];
     std::string target = resolved;
     bool redirect_dir = false;
@@ -372,7 +372,7 @@ static int authorize(const std::string &resolved, int mode, PathResult &r) {
         redirect_dir = true;
     }
 
-    if (!isPathAllowed(target.c_str(), mode)) return EACCES;
+    if (!isPathAllowed(target.c_str(), mode, calling_pid)) return EACCES;
     r.path = std::move(target);
     r.redirected = redirect_dir;
     return 0;
@@ -386,7 +386,7 @@ resolve_and_authorize(Ctx &c, int dirfd, const char *raw, bool follow, int mode,
     if (e) {
         return e;
     }
-    return authorize(resolved, mode, r);
+    return authorize(resolved, mode, r, c.req->pid);
 }
 
 // Read the path argument, resolve, authorize. Returns 0, errno, or PASSTHRU.
@@ -1157,7 +1157,7 @@ Java_com_lody_virtual_server_security_SyscallBroker_serverServe(JNIEnv *env, job
                                                                 jint fd, jint pid,
                                                                 jobject sandbox, jstring cwd) {
     jclass cls = env->GetObjectClass(sandbox);
-    jmethodID check_method = env->GetMethodID(cls, "isFlagAllowed", "([BI)Z");
+    jmethodID check_method = env->GetMethodID(cls, "isFlagAllowed", "([BII)Z");
     if (check_method == nullptr) {
         env->ExceptionClear();
         return;
