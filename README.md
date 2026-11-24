@@ -1,6 +1,6 @@
 <div align="center">
 
-  # VirtualXposed
+  # VirtuAndroid
 
 </div>
 
@@ -10,8 +10,6 @@ This is an updated version of [VirtualXposed](https://github.com/android-hacker/
 It is used to run multiple copies of any app and inject legacy Xposed modules on a stock Android device without root. 
 This is possible due to the virtualization implementation [VirtualApp](https://github.com/asLody/VirtualApp) and the hooking
 implementation by [Vector](https://github.com/JingMatrix/Vector).
-
-This project is an implementation reference we use to evaluate attacks and defenses against virtualization frameworks.
 
 ---
 
@@ -26,9 +24,14 @@ Any commericial usage is forbidden as per their [declaration](https://github.com
 ### New features
 - Support for Android 5-17
 - Support for Xposed modules on x86_64 (emulators) via [LSPlant](https://github.com/LSPosed/LSPlant)
+- Compatibility with [Vector](https://github.com/JingMatrix/Vector)
 - Improved app permission handling
 - Improved file sandboxing
-
+- Improved service hardening
+- Improved module scoping settings
+- New logging system to observe guest actions
+- Configurable security profiles
+  
 ---
 
 ### Building
@@ -42,7 +45,7 @@ which show the specified version under **NDK (Side by side)** and **CMake**.
 Begin by cloning the repository:
 
 ```sh
-git clone https://github.com/virtuandroid-private/VirtualXposed-private
+git clone https://github.com/virtuandroid-private/VirtualXposed
 ```
 
 Initialize submodules:
