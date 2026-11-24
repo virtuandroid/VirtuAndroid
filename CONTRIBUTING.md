@@ -1,6 +1,6 @@
 # Introduction
 
-We welcome all contributions to VirtualXposed!  
+We welcome all contributions to VirtuAndroid!  
 
 You can help this project by contributing code, but also by reporting issues, 
 reporting vulnerabilities, localizing the project or simply contributing with ideas.
@@ -31,16 +31,16 @@ contributions, but we need to know if AI was used, and how it was used.
 
 # Getting started
 
-Please read the [VirtualXposed wiki](https://github.com/virtuandroid/VirtualXposed/wiki) page before getting started.
+Please read the [VirtuAndroid wiki](https://github.com/virtuandroid/VirtuAndroid/wiki) page before getting started.
 It contains information on how this project was started, and why we made certain design decisions.
 It can also be a great resource for understanding the internals of the project. The wiki page was written to 
 be understandable for anyone with an Android background.
 
 # How to report a bug
 
-If you find a security vulnerability, do NOT open an issue. Create a new security advisory [here](https://github.com/virtuandroid/VirtualXposed/security/advisories).
+If you find a security vulnerability, do NOT open an issue. Create a new security advisory [here](https://github.com/virtuandroid/VirtuAndroid/security/advisories).
 
-If you want to report a bug then create an [issue](https://github.com/virtuandroid/VirtualXposed/issues) containing everything needed to reproduce the bug.
+If you want to report a bug then create an [issue](https://github.com/virtuandroid/VirtuAndroid/issues) containing everything needed to reproduce the bug.
 We cannot fix the bug unless we can reproduce the bug.
 
 For example, if an app crashes, then please submit:
