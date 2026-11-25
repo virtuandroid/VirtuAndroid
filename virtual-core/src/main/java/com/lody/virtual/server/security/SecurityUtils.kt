@@ -31,6 +31,7 @@ object SecurityUtils {
     private val permissionManager by lazy {
         VPermissionManager.get()
     }
+
     fun getSecurityPolicy(): Int {
         return if (VirtualCore.get().isServerProcess) {
             VirtualSettingsService.servicePolicy
@@ -55,6 +56,10 @@ object SecurityUtils {
     @Throws
     private fun getCallingUidSafe(): Int {
         val uid = VBinder.getCallingUid()
+        if (getSecurityPolicy().isNone()) {
+            return uid
+        }
+
         if (uid == -1) {
             // It is normal we cannot resolve the calling UID on app startup
             // Do not kill the process using throwSecurityException

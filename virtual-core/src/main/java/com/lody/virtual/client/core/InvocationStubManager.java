@@ -55,6 +55,7 @@ import com.lody.virtual.client.hook.proxies.pm.LauncherAppsStub;
 import com.lody.virtual.client.hook.proxies.pm.PackageManagerStub;
 import com.lody.virtual.client.hook.proxies.power.PowerManagerStub;
 import com.lody.virtual.client.hook.proxies.restriction.RestrictionStub;
+import com.lody.virtual.client.hook.proxies.role.RoleManagerStub;
 import com.lody.virtual.client.hook.proxies.search.SearchManagerStub;
 import com.lody.virtual.client.hook.proxies.shortcut.ShortcutServiceStub;
 import com.lody.virtual.client.hook.proxies.telephony.TelephonyRegistryStub;
@@ -208,6 +209,9 @@ public final class InvocationStubManager {
             	// http://aospxref.com/android-10.0.0_r47/xref/frameworks/base/core/java/android/os/IDeviceIdentifiersPolicyService.aidl#24
             	addInjector(new DeviceIdentifiersPolicyServiceStub());
 			}
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                addInjector(new RoleManagerStub());
+            }
             if (Build.VERSION.SDK_INT >= R) {
 				addInjector(new PermissionManagerStub());
 			}

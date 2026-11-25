@@ -48,5 +48,6 @@ public class AppWidgetManagerStub extends BinderInvocationProxy {
 		addMethodProxy(new ResultStaticMethodProxy("unbindRemoteViewsService", 0));
 		addMethodProxy(new ResultStaticMethodProxy("getAppWidgetIds", new int[0]));
 		addMethodProxy(new ResultStaticMethodProxy("isBoundWidgetPackage", false));
+		addMethodProxy(new ResultStaticMethodProxy("setWidgetPreview", false));
 	}
 }
