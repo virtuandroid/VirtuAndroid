@@ -25,6 +25,7 @@ import com.lody.virtual.server.permission.VPermissionManager;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
 
@@ -239,8 +240,13 @@ public class PermissionManageActivity extends VActivity {
             }
             final var categoryKey = category.getKey();
             final var noneTextKey = "none_" + categoryKey + "_text";
-            final int titleRes = getResources().getIdentifier(
-                    "permission_manage_none_" + categoryKey, "string", ctx.getPackageName());
+
+            final int titleRes;
+            if (Objects.equals(categoryKey, "not_allowed")) {
+                titleRes = R.string.permission_manage_none_not_allowed;
+            } else {
+                titleRes = R.string.permission_manage_none_allowed;
+            }
             final var noneText = new Preference(ctx) {
                 @Override
                 public void onBindViewHolder(PreferenceViewHolder holder) {

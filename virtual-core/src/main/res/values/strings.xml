@@ -42,4 +42,7 @@
     <string name="alert_host_permission_denied_preference">
         permissions_settings_show_host_permission_denied_alert
     </string>
+
+    <string name="coarse_location_permission_description">access this device’s approximate location</string>
+    <string name="fine_location_permission_description">access this device’s precise location</string>
 </resources>

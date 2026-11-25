@@ -43,15 +43,15 @@ public class GrantPermissionsActivity extends Activity {
     private static final String FINE_LOCATION = Manifest.permission.ACCESS_FINE_LOCATION;
 
     public static final String ACTION_REQUEST_PERMISSIONS = PackageManager
-        .ACTION_REQUEST_PERMISSIONS.get();
+            .ACTION_REQUEST_PERMISSIONS.get();
     public static final String EXTRA_PERMISSIONS_NAMES = PackageManager
-        .EXTRA_REQUEST_PERMISSIONS_NAMES.get();
+            .EXTRA_REQUEST_PERMISSIONS_NAMES.get();
     public static final String EXTRA_RESULTS = PackageManager
-        .EXTRA_REQUEST_PERMISSIONS_RESULTS.get();
+            .EXTRA_REQUEST_PERMISSIONS_RESULTS.get();
     public static final String EXTRA_APP_NAME =
-        "com.lody.virtual.client.stub.extra.REQUEST_PERMISSIONS_APP_NAME";
+            "com.lody.virtual.client.stub.extra.REQUEST_PERMISSIONS_APP_NAME";
     public static final String EXTRA_APP_UID =
-        "com.lody.virtual.client.stub.extra.REQUEST_PERMISSIONS_APP_UID";
+            "com.lody.virtual.client.stub.extra.REQUEST_PERMISSIONS_APP_UID";
 
     private final VPermissionManager permissionManager = VPermissionManager.get();
     private final Set<String> groupsToSkip = new HashSet<>();
@@ -73,7 +73,7 @@ public class GrantPermissionsActivity extends Activity {
         appName = intent.getStringExtra(EXTRA_APP_NAME);
         grantResults = new int[permissions.length];
         alertHostDenied = PreferenceManager.getDefaultSharedPreferences(this)
-            .getBoolean(getString(R.string.alert_host_permission_denied_preference), true);
+                .getBoolean(getString(R.string.alert_host_permission_denied_preference), true);
         Arrays.fill(grantResults, PERMISSION_DENIED);
 
         // When requesting multiple permissions
@@ -96,8 +96,8 @@ public class GrantPermissionsActivity extends Activity {
     private void grantNextPermission() {
         final String permissionName = permissions[requestNumber];
         final var group = permissionManager
-            .getPermission(permissionName, uid, RuntimePermission.class)
-            .getPermissionGroup();
+                .getPermission(permissionName, uid, RuntimePermission.class)
+                .getPermissionGroup();
         final var groupName = group != null ? group.getName() : null;
         if (groupName != null && (
                 group.getStatus() == Status.DENIED || groupsToSkip.contains(groupName)
@@ -174,7 +174,7 @@ public class GrantPermissionsActivity extends Activity {
                         permissionManager.allowPermission(permissionName, uid);
                     }
                 }
-            };
+            }
             setGrantResult(permission.isGranted() ? PERMISSION_GRANTED : PERMISSION_DENIED);
             return;
         }
@@ -198,15 +198,14 @@ public class GrantPermissionsActivity extends Activity {
     private void showPermissionRequestDialog(final RuntimePermission permission) {
         final var permissionName = permission.getName();
         var message = getString(R.string.permission_request_dialog_message,
-                    appName, permission.getReadableName());
+                appName, permission.getReadableName());
         if (permissionName.equals(COARSE_LOCATION) || permissionName.equals(FINE_LOCATION)) {
-            final var locationType = switch (permissionName) {
-                case COARSE_LOCATION -> "coarse";
-                case FINE_LOCATION -> "fine";
-                default -> "";
-            };
-            final int descriptionRes = getResources().getIdentifier(locationType +
-                    "_location_permission_description", "string", getPackageName());
+            int descriptionRes;
+            if (permissionName.equals(COARSE_LOCATION)) {
+                descriptionRes = R.string.coarse_location_permission_description;
+            } else {
+                descriptionRes = R.string.fine_location_permission_description;
+            }
             message = getString(R.string.permission_group_request_dialog_message,
                     appName, getString(descriptionRes));
         }

@@ -77,6 +77,8 @@
     <string name="runtime_permissions">Runtime permissions</string>
     <string name="install_permissions">Install-time permissions</string>
     <string name="override_permissions">Override permissions</string>
+    <string name="permission_manage_none_allowed">No permissions allowed</string>
+    <string name="permission_manage_none_not_allowed">No permissions denied</string>
     <string name="permission_manage_group">Follow group</string>
     <string name="permission_manage_allow">Allow</string>
     <string name="permission_manage_allowed">Allowed</string>
