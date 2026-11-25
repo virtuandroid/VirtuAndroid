@@ -211,7 +211,7 @@ static int read_cstr(Ctx &c, uint64_t addr, char *buf, size_t cap) {
 /* ========================================================================== */
 
 // NewStringUTF can fail, better to use byte array and decode in kotlin
-static jbyteArray makeByteArray(JNIEnv* env, const char* path) {
+static jbyteArray makeByteArray(JNIEnv *env, const char *path) {
     if (path == nullptr) return nullptr;
 
     const size_t len = std::strlen(path);
@@ -222,7 +222,7 @@ static jbyteArray makeByteArray(JNIEnv* env, const char* path) {
     }
 
     env->SetByteArrayRegion(jbytes, 0, static_cast<jsize>(len),
-                            reinterpret_cast<const jbyte*>(path));
+                            reinterpret_cast<const jbyte *>(path));
     if (env->ExceptionCheck()) {        // ArrayIndexOutOfBounds etc.
         env->ExceptionClear();
         env->DeleteLocalRef(jbytes);
@@ -372,7 +372,9 @@ static int authorize(const std::string &resolved, int mode, PathResult &r, __u32
         redirect_dir = true;
     }
 
-    if (!isPathAllowed(target.c_str(), mode, calling_pid)) return EACCES;
+    if (!isPathAllowed(target.c_str(), mode, calling_pid)) {
+        return EACCES;
+    }
     r.path = std::move(target);
     r.redirected = redirect_dir;
     return 0;
@@ -854,13 +856,22 @@ static void patch_and_continue(Ctx &c, int dirfd, int path_arg, bool follow, int
                                bool allow_empty) {
     PathResult p;
     int e = prepare_path(c, dirfd, path_arg, follow, mode, allow_empty, p);
+
     FAIL_OR_PASS(e);
     if (p.redirected) {
-        if (p.path.size() > p.raw_len)
+        if (p.path.size() > p.raw_len) {
+            ALOGW("Tried to redirect to a longer path than supported!");
             return c.fail(ENAMETOOLONG);   // would overflow tracee's buffer
-        if (!write_remote(c, p.addr, p.path.c_str(), p.path.size() + 1)) return c.fail(EFAULT);
+        }
+        if (!write_remote(c, p.addr, p.path.c_str(), p.path.size() + 1)) {
+            return c.fail(EFAULT);
+        }
     }
-    if (!c.valid()) return c.fail(ESRCH);
+
+    if (!c.valid()) {
+        return c.fail(ESRCH);
+    }
+
     c.cont();
 }
 

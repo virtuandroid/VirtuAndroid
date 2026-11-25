@@ -85,7 +85,8 @@ class StorageSandbox {
             "/data/misc",
             "/system_ext",
             "/odm", // For exec
-            "/linkerconfig" // For exec
+            "/linkerconfig", // For exec
+            "/product"
         )
 
         whitelistPaths("/storage") // External storage, should be restricted in the future
@@ -148,7 +149,7 @@ class StorageSandbox {
         val path = absolutePath.decodeToString() // Safely handles UTF-8 decoding as opposed to C++
 
         // Small exception to the constant rules to allow child processes to access their own proc
-        if (ruleList.value.allowCallingPidProc){
+        if (ruleList.value.allowCallingPidProc) {
             if (path.startsWith("/proc/$callingPid/") || path == "/proc/$callingPid") {
                 return true
             }
@@ -157,11 +158,11 @@ class StorageSandbox {
         return isFlagAllowed(path, permission)
     }
 
-    fun getRedirectPath(path: String): String {
+    fun getRedirectPath(path: String): String? {
         return getRedirectPath(path, ruleList.value.redirectMap)
     }
 
-    fun getRedirectPath(path: ByteArray): String {
+    fun getRedirectPath(path: ByteArray): String? {
         return getRedirectPath(path.decodeToString(), ruleList.value.redirectMap)
     }
 
@@ -182,8 +183,10 @@ class StorageSandbox {
             return setFlag(permission, path, ruleList)
         }
 
-        /** Must always be called before isPathAllowed, to normalize the path */
-        fun getRedirectPath(path: String, redirectMap: Map<String, String>): String {
+        /** Must always be called before isPathAllowed, to normalize the path
+         * @return the redirected path or null if no path change
+         */
+        fun getRedirectPath(path: String, redirectMap: Map<String, String>): String? {
             val absolutePath = normalized(path)
 
             val redirectPath =
@@ -197,7 +200,11 @@ class StorageSandbox {
                 } ?: absolutePath
 
             // Timber.i("Redirected: $path -> $redirectPath")
-            return redirectPath
+            return if (path == redirectPath) {
+                null
+            } else {
+                redirectPath
+            }
         }
 
         private fun normalized(path: String): String {

@@ -516,20 +516,24 @@ object VAppManagerService : IAppManager.Stub() {
 
     private fun notifyAppInstalled(setting: PackageSetting, userId: Int) {
         val pkg = setting.packageName
-        var N = mRemoteCallbackList.beginBroadcast()
-        while (N-- > 0) {
-            try {
+        val broadcastItems = mRemoteCallbackList.beginBroadcast()
+
+        repeat(broadcastItems) { index ->
+            runCatching {
+                val item = mRemoteCallbackList.getBroadcastItem(index)
+
                 if (userId == -1) {
                     sendInstalledBroadcast(pkg)
-                    mRemoteCallbackList.getBroadcastItem(N)!!.onPackageInstalled(pkg)
-                    mRemoteCallbackList.getBroadcastItem(N)!!.onPackageInstalledAsUser(0, pkg)
+                    item.onPackageInstalled(pkg)
+                    item.onPackageInstalledAsUser(0, pkg)
                 } else {
-                    mRemoteCallbackList.getBroadcastItem(N)!!.onPackageInstalledAsUser(userId, pkg)
+                    item.onPackageInstalledAsUser(userId, pkg)
                 }
-            } catch (e: RemoteException) {
-                Timber.e(e)
+            }.onFailure {
+                Timber.e(it, "App installation notification failed")
             }
         }
+
         mRemoteCallbackList.finishBroadcast()
         VAccountManagerService.get().refreshAuthenticatorCache(null)
     }
