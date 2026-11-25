@@ -50,6 +50,7 @@ public class NotificationManagerStub extends MethodInvocationProxy<MethodInvocat
             addMethodProxy(new ReplaceCallingPkgMethodProxy("getNotificationChannelGroups"));
             addMethodProxy(new ReplaceCallingPkgMethodProxy("deleteNotificationChannelGroup"));
             addMethodProxy(new ReplaceCallingPkgMethodProxy("createNotificationChannels"));
+            addMethodProxy(new ReplaceCallingPkgMethodProxy("getNotificationChannelGroupsWithoutChannels"));
             addMethodProxy(new ReplaceCallingPkgMethodProxy("getNotificationChannels") {
                 @Override
                 public boolean beforeCall(Object who, Method method, Object... args) {
