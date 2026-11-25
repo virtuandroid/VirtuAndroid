@@ -5,6 +5,7 @@ import android.os.IInterface;
 
 import mirror.MethodParams;
 import mirror.RefClass;
+import mirror.RefMethod;
 import mirror.RefStaticMethod;
 
 /**
@@ -13,6 +14,7 @@ import mirror.RefStaticMethod;
  */
 public class IActivityTaskManager {
     public static Class<?> TYPE = RefClass.load(IActivityTaskManager.class, "android.app.IActivityTaskManager");
+    public static RefMethod<Integer> startActivities;
 
     public static class Stub {
         public static Class<?> TYPE = RefClass.load(IActivityTaskManager.Stub.class, "android.app.IActivityTaskManager$Stub");

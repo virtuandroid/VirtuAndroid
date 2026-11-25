@@ -23,8 +23,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import mirror.android.app.ActivityManagerNative
+import mirror.android.app.ActivityTaskManager
 import mirror.android.app.ActivityThread
 import mirror.android.app.IActivityManager
+import mirror.android.app.IActivityTaskManager
 import mirror.android.app.IApplicationThread
 import mirror.com.android.internal.R_Hide
 import timber.log.Timber
@@ -449,7 +451,7 @@ internal class ActivityStack(private val mService: VActivityManagerService) {
         resolvedTypes: Array<String?>?,
         options: Bundle?
     ) {
-        val types = IActivityManager.startActivities.paramList()
+        val types = IActivityTaskManager.startActivities.paramList()
         val args = arrayOfNulls<Any>(types.size)
         if (types[0] == IApplicationThread.TYPE) {
             args[0] = ActivityThread.getApplicationThread.call(VirtualCore.mainThread())
@@ -467,8 +469,9 @@ internal class ActivityStack(private val mService: VActivityManagerService) {
         args[resolvedTypesIndex] = resolvedTypes
         args[optionsIndex] = options
         ClassUtils.fixArgs(types, args)
-        IActivityManager.startActivities.call(
-            ActivityManagerNative.getDefault.call(),
+        val receiver = ActivityTaskManager.getService.call()
+        IActivityTaskManager.startActivities.call(
+            receiver,
             *args
         )
     }
