@@ -46,7 +46,6 @@ import java.io.IOException
 import java.lang.String.format
 import java.util.LinkedList
 import java.util.Locale
-import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.Volatile
 import kotlin.math.abs
 

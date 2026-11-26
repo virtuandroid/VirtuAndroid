@@ -1,7 +1,6 @@
 package org.matrix.vector.service
 
 import com.lody.virtual.client.core.VirtualCore
-import org.matrix.vector.ipc.IManagerService
 import java.io.File
 
 object VectorManagerService {

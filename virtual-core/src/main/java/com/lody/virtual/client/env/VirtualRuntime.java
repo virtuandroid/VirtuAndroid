@@ -4,11 +4,9 @@ import android.content.pm.ApplicationInfo;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.Process;
 import android.os.RemoteException;
 
 import com.lody.virtual.client.core.VirtualCore;
-import com.lody.virtual.helper.utils.VLog;
 
 import mirror.android.ddm.DdmHandleAppName;
 import mirror.android.ddm.DdmHandleAppNameJBMR1;

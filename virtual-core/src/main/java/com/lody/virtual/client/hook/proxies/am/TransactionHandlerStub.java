@@ -2,7 +2,6 @@ package com.lody.virtual.client.hook.proxies.am;
 
 import android.app.ClientTransactionHandler;
 import android.app.TransactionHandlerProxy;
-import android.util.Log;
 
 import com.lody.virtual.client.interfaces.IInjector;
 

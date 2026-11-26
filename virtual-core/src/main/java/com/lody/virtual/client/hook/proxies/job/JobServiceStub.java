@@ -1,6 +1,5 @@
 package com.lody.virtual.client.hook.proxies.job;
 
-import android.annotation.TargetApi;
 import android.app.job.JobInfo;
 import android.content.Context;
 import android.content.Intent;

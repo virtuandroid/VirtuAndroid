@@ -4,10 +4,6 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.os.IBinder
 import com.virtualxposed.hook.VHookClient
-import org.matrix.vector.service.VectorManagerService
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import timber.log.Timber
 
 object VectorClient {

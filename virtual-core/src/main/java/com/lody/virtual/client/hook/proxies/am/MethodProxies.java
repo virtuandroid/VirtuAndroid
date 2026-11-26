@@ -6,7 +6,6 @@ import static com.lody.virtual.IntentHelper.INTENT_EMBEDDED;
 import static com.lody.virtual.IntentHelper.INTENT_FROM_INNER;
 import static com.lody.virtual.IntentHelper.INTENT_URI;
 import static com.lody.virtual.IntentHelper.INTENT_USER_ID;
-import static com.lody.virtual.client.stub.GrantPermissionsActivity.EXTRA_PERMISSIONS_NAMES;
 import static com.lody.virtual.server.IVirtualSettingsManager.POLICY_NONE;
 
 import android.Manifest;
@@ -38,7 +37,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.IInterface;
-import android.os.Process;
 import android.os.RemoteException;
 import android.provider.MediaStore;
 import android.text.TextUtils;
@@ -96,7 +94,6 @@ import mirror.android.app.LoadedApk;
 import mirror.android.content.ContentProviderHolderOreo;
 import mirror.android.content.IIntentReceiverJB;
 import mirror.android.content.pm.UserInfo;
-import timber.log.Timber;
 
 /**
  * @author Lody

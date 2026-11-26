@@ -11,7 +11,6 @@ import android.os.PersistableBundle
 import android.os.RemoteException
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.client.stub.VASettings
-import com.lody.virtual.helper.utils.Singleton
 import com.lody.virtual.os.VBinder
 import com.lody.virtual.os.VEnvironment
 import com.lody.virtual.server.IJobScheduler

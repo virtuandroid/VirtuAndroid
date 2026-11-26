@@ -6,8 +6,6 @@ import android.util.Log;
 import com.lody.virtual.client.hook.utils.MethodParameterUtils;
 import com.lody.virtual.helper.utils.VLog;
 
-import org.chickenhook.restrictionbypass.BuildConfig;
-
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;

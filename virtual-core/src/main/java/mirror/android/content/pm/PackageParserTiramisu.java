@@ -9,7 +9,6 @@ import android.content.pm.ServiceInfo;
 
 import java.io.File;
 
-import mirror.MethodReflectParams;
 import mirror.RefClass;
 import mirror.RefConstructor;
 import mirror.RefMethod;

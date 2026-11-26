@@ -31,7 +31,6 @@ import java.util.Map;
 import mirror.android.app.ActivityManagerNative;
 import mirror.android.app.IActivityManager;
 import mirror.com.android.internal.content.ReferrerIntent;
-import timber.log.Timber;
 
 
 /**

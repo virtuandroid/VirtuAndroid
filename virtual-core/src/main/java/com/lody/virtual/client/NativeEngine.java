@@ -17,7 +17,6 @@ import com.virtualxposed.log.client.LogMessage;
 import com.virtualxposed.log.client.VLoggingClient;
 
 import java.io.File;
-import java.io.IOException;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.List;

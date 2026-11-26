@@ -1,12 +1,8 @@
 package mirror.android.content.pm;
 
-import android.content.pm.Signature;
-
 import mirror.MethodReflectParams;
 import mirror.RefClass;
 import mirror.RefConstructor;
-import mirror.RefMethod;
-import mirror.RefObject;
 
 /**
  * @author Alberto Lazari

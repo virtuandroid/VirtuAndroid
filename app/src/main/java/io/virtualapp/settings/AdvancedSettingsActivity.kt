@@ -6,14 +6,12 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
-import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreference
 import com.android.launcher3.LauncherFiles
 import com.google.android.apps.nexuslauncher.SettingsActivity
 import com.lody.virtual.client.env.Constants
-import com.virtualxposed.log.client.VLoggingClient
 import io.virtualapp.VCommends
 import io.virtualapp.abs.ui.VActivity
 import io.virtualapp.gms.FakeGms

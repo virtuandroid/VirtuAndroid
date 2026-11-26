@@ -3,9 +3,7 @@ package org.matrix.vector.service
 import android.annotation.SuppressLint
 import com.virtualxposed.hook.PackageID
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import org.matrix.vector.ipc.HookScope
-import timber.log.Timber
 import java.io.File
 
 

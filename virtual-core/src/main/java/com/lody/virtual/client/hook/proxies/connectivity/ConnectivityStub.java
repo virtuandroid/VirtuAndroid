@@ -3,12 +3,6 @@ package com.lody.virtual.client.hook.proxies.connectivity;
 import android.content.Context;
 
 import com.lody.virtual.client.hook.base.BinderInvocationProxy;
-import com.lody.virtual.client.hook.base.MethodProxy;
-import com.lody.virtual.client.hook.base.ReplaceLastPkgMethodProxy;
-import com.lody.virtual.client.hook.base.StaticMethodProxy;
-import com.lody.virtual.client.ipc.ServiceManagerNative;
-
-import java.lang.reflect.Method;
 
 import mirror.android.net.IConnectivityManager;
 

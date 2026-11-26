@@ -1,10 +1,7 @@
 package com.lody.virtual.client.hook.proxies.fingerprint;
 
 import android.annotation.TargetApi;
-import android.content.Context;
 import android.os.Build;
-
-import androidx.core.content.ContextCompat;
 
 import com.lody.virtual.client.hook.base.BinderInvocationProxy;
 import com.lody.virtual.client.hook.base.ReplaceLastPkgMethodProxy;

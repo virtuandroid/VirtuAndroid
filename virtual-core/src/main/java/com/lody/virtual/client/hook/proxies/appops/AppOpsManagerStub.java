@@ -1,7 +1,6 @@
 package com.lody.virtual.client.hook.proxies.appops;
 
 import android.annotation.TargetApi;
-import android.app.SyncNotedAppOp;
 import android.content.Context;
 import android.os.Build;
 

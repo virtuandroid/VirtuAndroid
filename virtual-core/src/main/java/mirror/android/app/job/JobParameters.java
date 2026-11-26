@@ -5,9 +5,7 @@ import android.os.Build;
 import android.os.IBinder;
 import android.os.PersistableBundle;
 
-import mirror.MethodParams;
 import mirror.RefClass;
-import mirror.RefConstructor;
 import mirror.RefInt;
 import mirror.RefObject;
 

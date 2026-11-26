@@ -1,12 +1,10 @@
 package com.lody.virtual.server.pm;
 
-import android.annotation.TargetApi;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ProviderInfo;
 import android.content.pm.ResolveInfo;
-import android.os.Build;
 
 import com.lody.virtual.helper.compat.ObjectsCompat;
 import com.lody.virtual.helper.utils.VLog;

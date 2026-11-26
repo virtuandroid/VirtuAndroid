@@ -1,7 +1,7 @@
 package io.virtualapp.widgets;
 
 import android.content.Context;
-import android.graphics.Canvas;
+
 import androidx.appcompat.widget.AppCompatTextView;
 import android.util.AttributeSet;
 

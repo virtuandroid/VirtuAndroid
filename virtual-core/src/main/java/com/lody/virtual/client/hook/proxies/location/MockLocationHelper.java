@@ -1,7 +1,5 @@
 package com.lody.virtual.client.hook.proxies.location;
 
-import android.util.Log;
-
 import com.lody.virtual.client.env.VirtualGPSSatalines;
 import com.lody.virtual.client.ipc.VirtualLocationManager;
 import com.lody.virtual.helper.utils.Reflect;

@@ -16,7 +16,6 @@ import kotlinx.collections.immutable.PersistentMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
-import timber.log.Timber
 import java.util.concurrent.ExecutionException
 import kotlin.time.Duration.Companion.seconds
 

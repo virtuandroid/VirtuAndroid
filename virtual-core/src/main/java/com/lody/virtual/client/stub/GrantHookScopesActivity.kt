@@ -10,7 +10,6 @@ import android.view.Window
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.core.view.isGone
 import com.lody.virtual.R
 import com.lody.virtual.client.core.VirtualCore
 import com.virtualxposed.hook.server.IVHookService

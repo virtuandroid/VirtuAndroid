@@ -1,7 +1,6 @@
 package com.lody.virtual.client.hook.proxies.devicepolicy;
 
 import android.content.Context;
-import android.util.Log;
 
 import com.lody.virtual.client.core.VirtualCore;
 import com.lody.virtual.client.hook.base.BinderInvocationProxy;

@@ -4,10 +4,8 @@ import android.content.pm.PackageInfo
 import android.os.IBinder
 import android.os.RemoteException
 import com.virtualxposed.hook.server.IVHookService
-import com.virtualxposed.log.client.LogMessage
 import com.virtualxposed.log.client.LogMessage.Companion.toPrettyString
 import timber.log.Timber
-import java.lang.reflect.Constructor
 import java.lang.reflect.Member
 
 object VHookClient {
