@@ -61,7 +61,6 @@ import com.lody.virtual.remote.InstalledAppInfo;
 import com.lody.virtual.remote.PendingResultData;
 import com.lody.virtual.remote.VDeviceInfo;
 import com.lody.virtual.server.interfaces.IUiCallback;
-import com.lody.virtual.server.security.SyscallBroker;
 import com.virtualxposed.hook.PackageID;
 import com.virtualxposed.hook.VHookClient;
 import com.virtualxposed.log.client.LogMessage;
@@ -242,12 +241,9 @@ public final class VClientImpl extends IVClient.Stub {
             bindApplicationNoCheck(packageName, processName, new ConditionVariable());
         } else {
             final ConditionVariable lock = new ConditionVariable();
-            VirtualRuntime.getUIHandler().post(new Runnable() {
-                @Override
-                public void run() {
-                    bindApplicationNoCheck(packageName, processName, lock);
-                    lock.open();
-                }
+            VirtualRuntime.getUIHandler().post(() -> {
+                bindApplicationNoCheck(packageName, processName, lock);
+                lock.open();
             });
             lock.block();
         }
@@ -513,7 +509,6 @@ public final class VClientImpl extends IVClient.Stub {
         ThreadGroup newRoot = new RootThreadGroup(root);
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
             final List<ThreadGroup> groups = mirror.java.lang.ThreadGroup.groups.get(root);
-            //noinspection SynchronizationOnLocalVariableOrMethodParameter
             synchronized (groups) {
                 List<ThreadGroup> newGroups = new ArrayList<>(groups);
                 newGroups.remove(newRoot);
@@ -530,7 +525,6 @@ public final class VClientImpl extends IVClient.Stub {
             }
         } else {
             final ThreadGroup[] groups = ThreadGroupN.groups.get(root);
-            //noinspection SynchronizationOnLocalVariableOrMethodParameter
             synchronized (groups) {
                 ThreadGroup[] newGroups = groups.clone();
                 ThreadGroupN.groups.set(newRoot, newGroups);

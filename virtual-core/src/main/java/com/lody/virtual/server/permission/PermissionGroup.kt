@@ -1,5 +1,7 @@
 package com.lody.virtual.server.permission
 
+import android.os.Parcel
+import android.os.Parcelable
 import com.lody.virtual.client.core.VirtualCore
 import java.util.Locale
 
@@ -9,7 +11,7 @@ import java.util.Locale
  */
 class PermissionGroup : Permission {
     // Runtime permissions referencing this group
-   private val permissions: MutableSet<RuntimePermission>
+    private val permissions: MutableSet<RuntimePermission>
 
     constructor(name: String?) : super(name, Status.UNREQUESTED) {
         permissions = HashSet()
@@ -46,13 +48,47 @@ class PermissionGroup : Permission {
     }
 
     fun addPermission(permission: RuntimePermission) {
-        if (!VPermissionManager.BACKGROUND_PERMISSIONS.contains(permission.name)) {
+        if (!VPermissionService.BACKGROUND_PERMISSIONS.contains(permission.name)) {
             // Do not manage background permissions with groups
             permissions.add(permission)
         }
     }
 
+    override fun describeContents(): Int = 0
+
+    override fun writeToParcel(dest: Parcel, flags: Int) {
+        dest.writeString(name)
+        dest.writeString(statusToString())
+
+        dest.writeInt(permissions.size)
+        for (permission in permissions) {
+            dest.writeString(permission.name)
+            dest.writeString(permission.statusToString())
+        }
+    }
+
     companion object {
+        @JvmField
+        val CREATOR: Parcelable.Creator<PermissionGroup> =
+            object : Parcelable.Creator<PermissionGroup> {
+                override fun createFromParcel(source: Parcel): PermissionGroup {
+                    val name = source.readString()
+                    val statusString = source.readString()
+                    val group = PermissionGroup(name, statusString)
+
+                    val count = source.readInt()
+                    repeat(count) {
+                        val permName = source.readString()
+                        val permStatus = source.readString() ?: ""
+                        group.permissions.add(RuntimePermission(permName, group, permStatus))
+                    }
+                    return group
+                }
+
+                override fun newArray(size: Int): Array<PermissionGroup?> =
+                    arrayOfNulls(size)
+            }
+
         /**
          * @return @groupName icon drawable resource identifier, or the default one if group is `null`
          */

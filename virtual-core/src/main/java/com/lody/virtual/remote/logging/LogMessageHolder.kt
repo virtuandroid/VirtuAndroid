@@ -5,7 +5,7 @@ import android.content.pm.PackageManager
 import com.lody.virtual.os.VBinder
 import com.lody.virtual.os.VEnvironment
 import com.lody.virtual.os.VEnvironment.getPackageResourcePath
-import com.lody.virtual.server.permission.VPermissionManager
+import com.lody.virtual.server.permission.VPermissionService
 import com.lody.virtual.server.pm.VPackageManagerService
 import com.lody.virtual.server.security.SecurityUtils
 import com.virtualxposed.log.client.LogMessage
@@ -164,7 +164,7 @@ class LogMessageHolder private constructor(
                 is LogMessage.UsePermission -> {
                     val permission = logMessage.permission
                     val isGranted = runCatching {
-                        VPermissionManager.get().checkPermission(permission, callingUid)
+                        VPermissionService.get().checkPermission(permission, callingUid)
                     }.getOrNull() == PackageManager.PERMISSION_GRANTED
 
                     !isGranted

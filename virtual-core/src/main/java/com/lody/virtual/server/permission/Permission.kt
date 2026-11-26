@@ -1,5 +1,6 @@
 package com.lody.virtual.server.permission
 
+import android.os.Parcelable
 import java.util.Locale
 import java.util.Objects
 
@@ -7,7 +8,7 @@ import java.util.Objects
  * @author Alberto Lazari
  * State of a permission.
  */
-abstract class Permission protected constructor(name: String?) {
+abstract class Permission protected constructor(name: String?) : Parcelable {
     /**
      * Grant status for the permission.
      */

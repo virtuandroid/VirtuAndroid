@@ -5,7 +5,6 @@ import android.content.ContentValues;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.provider.BaseColumns;
 import android.provider.MediaStore;
@@ -13,7 +12,7 @@ import com.lody.virtual.client.NativeEngine;
 import com.lody.virtual.client.hook.base.MethodBox;
 import com.lody.virtual.os.VBinder;
 import com.lody.virtual.server.mediastore.VMediaProvider;
-import com.lody.virtual.server.permission.VPermissionManager;
+import com.lody.virtual.client.ipc.VPermissionManager;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
 

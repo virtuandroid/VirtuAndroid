@@ -90,9 +90,6 @@ class StorageSandbox {
         )
 
         whitelistPaths("/storage") // External storage, should be restricted in the future
-        whitelistPaths(
-            "/data/data/$hostPkg/virtual/data/app/system/permissions.xml", readOnly = true
-        )
 
         // Redirect user data access to VirtualXposed internal file system
         whitelistPaths(info.dataDir)

@@ -21,7 +21,7 @@ import com.lody.virtual.client.stub.StorageRedirect;
 import com.lody.virtual.helper.compat.BuildCompat;
 import com.lody.virtual.helper.utils.VLog;
 import com.lody.virtual.os.VBinder;
-import com.lody.virtual.server.permission.VPermissionManager;
+import com.lody.virtual.client.ipc.VPermissionManager;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;

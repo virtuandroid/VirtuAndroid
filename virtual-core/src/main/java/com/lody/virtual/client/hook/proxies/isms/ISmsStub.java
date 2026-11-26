@@ -8,7 +8,7 @@ import com.lody.virtual.client.hook.base.BinderInvocationProxy;
 import com.lody.virtual.client.hook.base.ReplaceCallingPkgMethodProxy;
 import com.lody.virtual.client.hook.base.ReplaceSpecPkgMethodProxy;
 import com.lody.virtual.os.VBinder;
-import com.lody.virtual.server.permission.VPermissionManager;
+import com.lody.virtual.client.ipc.VPermissionManager;
 
 import java.lang.reflect.Method;
 

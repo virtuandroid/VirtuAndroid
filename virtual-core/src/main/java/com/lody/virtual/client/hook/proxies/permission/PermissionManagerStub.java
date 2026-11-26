@@ -1,13 +1,10 @@
 package com.lody.virtual.client.hook.proxies.permission;
 
-import android.annotation.TargetApi;
-import android.os.Build;
-
 import com.lody.virtual.client.hook.base.BinderInvocationProxy;
 import com.lody.virtual.client.hook.base.MethodProxy;
 import com.lody.virtual.client.ipc.VPackageManager;
 import com.lody.virtual.helper.utils.VLog;
-import com.lody.virtual.server.permission.VPermissionManager;
+import com.lody.virtual.client.ipc.VPermissionManager;
 
 import java.lang.reflect.Method;
 

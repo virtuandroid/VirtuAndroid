@@ -2,16 +2,29 @@ package com.lody.virtual.server.permission
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Parcel
+import android.os.Parcelable
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.helper.utils.VLog
+import com.virtualxposed.utils.Utils.readParcelableSafe
 
 /**
- * @author Alberto Lazari
  * Runtime permissions are granted at runtime.
  * They inherit their permission group status (if any), unless explicitly overridden in settings.
  * They can have addtional flags.
+ *
+ * @author Alberto Lazari
  */
 class RuntimePermission : Permission {
+    override fun describeContents(): Int = 0
+
+    override fun writeToParcel(dest: Parcel, parcelFlags: Int) {
+        dest.writeString(name)
+        dest.writeParcelable(permissionGroup, parcelFlags)
+        // Includes status + |deniedOnce / |grantedOnce / |override flags
+        dest.writeString(statusToString())
+    }
+
     val permissionGroup: PermissionGroup?
     private var flags = 0
 
@@ -150,7 +163,7 @@ class RuntimePermission : Permission {
             if (hasPermissionGroup()) {
                 return permissionGroup!!.groupIconRes
                 // Manage exceptions
-            } else if (VPermissionManager.LOCATION_PERMISSIONS.contains(name)) {
+            } else if (VPermissionService.LOCATION_PERMISSIONS.contains(name)) {
                 groupName = Manifest.permission_group.LOCATION
             } else if (name == Manifest.permission.BODY_SENSORS_BACKGROUND) {
                 groupName = Manifest.permission_group.SENSORS
@@ -238,5 +251,19 @@ class RuntimePermission : Permission {
         private const val FLAG_DENIED_ONCE = 1 shl 0
         private const val FLAG_GRANTED_ONCE = 1 shl 1
         private const val FLAG_OVERRIDE = 1 shl 2
+
+        @JvmField
+        val CREATOR: Parcelable.Creator<RuntimePermission> =
+            object : Parcelable.Creator<RuntimePermission> {
+                override fun createFromParcel(source: Parcel): RuntimePermission {
+                    val name = source.readString()
+                    val group = source.readParcelableSafe<PermissionGroup>()
+                    val statusString = source.readString() ?: ""
+                    return RuntimePermission(name, group, statusString)
+                }
+
+                override fun newArray(size: Int): Array<RuntimePermission?> =
+                    arrayOfNulls(size)
+            }
     }
 }

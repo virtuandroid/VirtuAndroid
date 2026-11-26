@@ -1,14 +1,15 @@
 package com.lody.virtual.server.permission
 
-class AppPermissions {
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
+@Parcelize
+class AppPermissions(
     /**
      * @return Reference of all permissions
      */
     val all: MutableMap<String?, Permission>
-
-    constructor(permissions: MutableMap<String?, Permission>) {
-        this.all = permissions
-    }
+) : Parcelable {
 
     /**
      * @return A copy of all type T permissions

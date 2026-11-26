@@ -194,13 +194,17 @@ object VActivityManagerService : IActivityManager.Stub() {
     }
 
 
-    fun getMainPid(): Int? {
+    private fun getMainProcess(): ActivityManager.RunningAppProcessInfo? {
         runCatching {
             // runningAppProcesses is not spoofable
             // TODO cache until death?
-            return am.runningAppProcesses.firstOrNull { it.processName == "${VirtualCore.get().hostPkg}:main" }?.pid
+            return am.runningAppProcesses.firstOrNull { it.processName == "${VirtualCore.get().hostPkg}:main" }
         }
         return null
+    }
+
+    fun getMainPid(): Int? {
+        return getMainProcess()?.pid
     }
 
     override fun onActivityCreated(

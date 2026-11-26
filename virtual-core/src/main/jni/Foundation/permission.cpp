@@ -22,9 +22,9 @@ void initializeCachedReferences(JNIEnv* env) {
   getCallingUidMethod = env->GetStaticMethodID(binderClass, "getCallingUid", "()I");
 
   const jclass permissionManagerClass = static_cast<jclass>(
-      env->NewGlobalRef(env->FindClass("com/lody/virtual/server/permission/VPermissionManager")));
+      env->NewGlobalRef(env->FindClass("com/lody/virtual/client/ipc/VPermissionManager")));
   jmethodID getInstanceMethod = env->GetStaticMethodID(permissionManagerClass,
-      "get", "()Lcom/lody/virtual/server/permission/VPermissionManager;");
+      "get", "()Lcom/lody/virtual/client/ipc/VPermissionManager;");
   permissionManager = env->NewGlobalRef(
       env->CallStaticObjectMethod(permissionManagerClass, getInstanceMethod));
   checkPermissionMethod = env->GetMethodID(permissionManagerClass, "checkPermission",

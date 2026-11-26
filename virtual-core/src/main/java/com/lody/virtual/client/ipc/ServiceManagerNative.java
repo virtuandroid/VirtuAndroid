@@ -35,6 +35,7 @@ public class ServiceManagerNative {
     public static final String VIRTUAL_LOG = "virtual-log";
     public static final String VIRTUAL_HOOK = "virtual-hook";
     public static final String VIRTUAL_SETTINGS = "virtual-settings";
+    public static final String VIRTUAL_PERMISSIONS = "virtual-permissions";
 
     private static IServiceFetcher sFetcher;
 

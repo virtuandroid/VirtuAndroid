@@ -22,7 +22,7 @@ import javax.xml.transform.stream.StreamResult
 /**
  * @author Alberto Lazari
  */
-internal class PermissionFileParser {
+class PermissionFileParser {
     private val documentBuilder: DocumentBuilder
     private val transformer: Transformer
 
@@ -42,7 +42,7 @@ internal class PermissionFileParser {
      * Read permissions list for all UIDs from permissions file
      */
     @Throws(IOException::class, SAXException::class)
-    fun read(fileStream: InputStream): MutableMap<Int, AppPermissions> {
+    fun read(fileStream: InputStream): Map<Int, AppPermissions> {
         val permissions = HashMap<Int, AppPermissions>()
         val bytes = ByteArray(fileStream.available())
         fileStream.read(bytes)
@@ -69,7 +69,7 @@ internal class PermissionFileParser {
      * Write permissions list for all UIDs to permissions file
      */
     @Throws(IOException::class, TransformerException::class)
-    fun write(cache: MutableMap<Int, AppPermissions>?, fileStream: OutputStream) {
+    fun write(cache: Map<Int, AppPermissions>?, fileStream: OutputStream) {
         val doc = documentBuilder.newDocument()
         val root = doc.createElement("permissions")
         doc.appendChild(root)
@@ -141,11 +141,12 @@ internal class PermissionFileParser {
                             if (groupPermission != null
                                 && groupPermission is PermissionGroup
                             ) {
-                                val runtimePermission =
-                                    RuntimePermission(name, groupPermission, status)
+                                val runtimePermission = RuntimePermission(name, groupPermission, status)
                                 groupPermission.addPermission(runtimePermission)
+                                runtimePermission
+                            } else {
+                                RuntimePermission(name, null, status)
                             }
-                            RuntimePermission(name, null, status)
                         }
 
                         "permission-groups" -> PermissionGroup(name, status)
@@ -182,6 +183,7 @@ internal class PermissionFileParser {
                         permissionElement.setAttribute("group", group!!.name)
                     }
                 }
+
                 permissionElement.setAttribute("status", permission!!.statusToString())
             }
         }

@@ -12,7 +12,6 @@ import com.lody.virtual.client.ipc.VPackageManager
 import com.lody.virtual.helper.compat.NativeLibraryHelperCompat
 import com.lody.virtual.helper.utils.ArrayUtils
 import com.lody.virtual.helper.utils.FileUtils
-import com.lody.virtual.helper.utils.VLog
 import com.lody.virtual.os.VEnvironment
 import com.lody.virtual.os.VUserHandle
 import com.lody.virtual.remote.InstallResult
@@ -24,7 +23,7 @@ import com.lody.virtual.server.am.UidSystem
 import com.lody.virtual.server.am.VActivityManagerService
 import com.lody.virtual.server.interfaces.IAppRequestListener
 import com.lody.virtual.server.interfaces.IPackageObserver
-import com.lody.virtual.server.permission.VPermissionManager
+import com.lody.virtual.client.ipc.VPermissionManager
 import com.lody.virtual.server.pm.parser.PackageParserEx
 import com.lody.virtual.server.pm.parser.VPackage
 import com.lody.virtual.server.security.SecurityUtils.assertPackageMatchesCallingUid
@@ -36,7 +35,6 @@ import com.virtualxposed.log.client.VLoggingClient
 import timber.log.Timber
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.atomic.AtomicReference
 
 /**
  * @author Lody
@@ -45,7 +43,7 @@ object VAppManagerService : IAppManager.Stub() {
     private val mUidSystem = UidSystem()
     private val mPersistenceLayer = PackagePersistenceLayer(this)
     private val mVisibleOutsidePackages: MutableSet<String> = HashSet()
-    private val mPermissionManager: VPermissionManager = VPermissionManager.get()
+    private val mPermissionManager: VPermissionManager = VPermissionManager
     var isBooting: Boolean = false
         private set
     private val mRemoteCallbackList = RemoteCallbackList<IPackageObserver>()

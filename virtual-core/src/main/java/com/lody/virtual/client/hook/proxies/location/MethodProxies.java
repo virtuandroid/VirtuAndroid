@@ -16,7 +16,7 @@ import com.lody.virtual.helper.utils.Reflect;
 import com.lody.virtual.os.VBinder;
 import com.lody.virtual.remote.vloc.VLocation;
 import com.lody.virtual.client.hook.utils.MethodParameterUtils;
-import com.lody.virtual.server.permission.VPermissionManager;
+import com.lody.virtual.client.ipc.VPermissionManager;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;

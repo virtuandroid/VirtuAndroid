@@ -5,15 +5,12 @@ import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 
 import android.Manifest;
 import android.app.AlertDialog;
-import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.text.Html;
-import android.view.View;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions;
@@ -21,10 +18,8 @@ import androidx.activity.result.contract.ActivityResultContracts.RequestPermissi
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.lody.virtual.R;
-import com.lody.virtual.helper.utils.VLog;
-import com.lody.virtual.os.VEnvironment;
 import com.lody.virtual.server.permission.RuntimePermission;
-import com.lody.virtual.server.permission.VPermissionManager;
+import com.lody.virtual.server.permission.VPermissionService;
 
 import java.util.Map;
 
@@ -67,7 +62,7 @@ public class GrantHostPermissionActivity extends AppCompatActivity {
         groupName = intent.getStringExtra(EXTRA_PERMISSION_GROUP_NAME);
         final int uid = intent.getIntExtra(EXTRA_APP_UID, 0);
         appName = intent.getStringExtra(EXTRA_APP_NAME);
-        permission = (RuntimePermission) VPermissionManager.get()
+        permission = (RuntimePermission) VPermissionService.get()
             .getAppPermissions(uid)
             .getPermission(permissionName);
         final String message = getString(R.string.host_permission_denied_dialog_message,

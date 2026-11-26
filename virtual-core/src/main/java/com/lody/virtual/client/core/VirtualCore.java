@@ -51,7 +51,6 @@ import com.lody.virtual.client.ipc.VActivityManager;
 import com.lody.virtual.client.ipc.VHookClientAttacher;
 import com.lody.virtual.client.ipc.VLoggingClientAttacher;
 import com.lody.virtual.client.ipc.VPackageManager;
-import com.lody.virtual.client.ipc.VirtualSettingsManager;
 import com.lody.virtual.client.stub.VASettings;
 import com.lody.virtual.helper.compat.BundleCompat;
 import com.lody.virtual.helper.utils.BitmapUtils;
@@ -59,12 +58,10 @@ import com.lody.virtual.os.VUserHandle;
 import com.lody.virtual.remote.InstallResult;
 import com.lody.virtual.remote.InstalledAppInfo;
 import com.lody.virtual.server.IAppManager;
-import com.lody.virtual.server.am.VActivityManagerService;
 import com.lody.virtual.server.interfaces.IAppRequestListener;
 import com.lody.virtual.server.interfaces.IPackageObserver;
 import com.lody.virtual.server.interfaces.IUiCallback;
 import com.lody.virtual.server.mediastore.VMediaProvider;
-import com.lody.virtual.server.permission.VPermissionManager;
 import com.virtualxposed.hook.VHookClient;
 import com.virtualxposed.log.client.VLoggingClient;
 
@@ -229,7 +226,6 @@ public final class VirtualCore {
                 // TODO check
             }
 
-            VPermissionManager.get().systemReady();
             VMediaProvider.get();
             // Attach to the logging client
             VLoggingClient.get().attach(new VLoggingClientAttacher());

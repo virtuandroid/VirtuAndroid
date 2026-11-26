@@ -26,7 +26,7 @@ import com.lody.virtual.remote.logging.LogMessageHolder
 import com.lody.virtual.server.IPackageInstaller
 import com.lody.virtual.server.IPackageManager
 import com.lody.virtual.server.log.VLoggingManagerService
-import com.lody.virtual.server.permission.VPermissionManager
+import com.lody.virtual.client.ipc.VPermissionManager
 import com.lody.virtual.server.pm.installer.VPackageInstallerService
 import com.lody.virtual.server.pm.parser.PackageParserEx
 import com.lody.virtual.server.pm.parser.VPackage

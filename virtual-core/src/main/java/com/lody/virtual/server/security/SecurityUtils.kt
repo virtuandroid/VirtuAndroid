@@ -5,11 +5,6 @@ import android.content.pm.PackageManager
 import android.content.pm.ProviderInfo
 import android.content.pm.ResolveInfo
 import android.content.pm.ServiceInfo
-import android.os.Process
-import android.system.ErrnoException
-import android.system.Os
-import android.system.OsConstants
-import android.widget.Toast
 import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.client.ipc.VActivityManager
 import com.lody.virtual.client.ipc.VPackageManager
@@ -17,12 +12,8 @@ import com.lody.virtual.client.ipc.VirtualSettingsManager
 import com.lody.virtual.os.VBinder
 import com.lody.virtual.os.VUserHandle
 import com.lody.virtual.server.IVirtualSettingsManager.POLICY_NONE
-import com.lody.virtual.server.IVirtualSettingsManager.POLICY_STRICT_HARDENING
-import com.lody.virtual.server.permission.VPermissionManager
+import com.lody.virtual.client.ipc.VPermissionManager
 import com.lody.virtual.server.settings.VirtualSettingsService
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import timber.log.Timber
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
@@ -131,7 +122,8 @@ object SecurityUtils {
     @JvmStatic
     @Throws(SecurityException::class)
     fun enforceCallingUid(uid: Int) {
-        if (getCallingUidSafe() != uid && uid != VActivityManager.get().systemPid) {
+        val callingUid = getCallingUidSafe()
+        if (callingUid != uid && callingUid != VActivityManager.get().systemPid) {
             throwSecurityException("Forbidden calling UID.")
         }
     }

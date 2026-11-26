@@ -5,21 +5,31 @@ import android.content.pm.PackageManager
 import android.content.pm.PermissionInfo
 import android.os.Build
 import com.lody.virtual.client.core.VirtualCore
+import com.lody.virtual.client.ipc.VPermissionManager
 import com.lody.virtual.helper.utils.VLog
 import com.lody.virtual.os.VEnvironment
+import com.lody.virtual.server.IVPermissionManager
 import com.lody.virtual.server.pm.SignUtils
 import com.lody.virtual.server.pm.parser.VPackage
+import com.lody.virtual.server.security.SecurityUtils
+import kotlinx.collections.immutable.PersistentMap
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import timber.log.Timber
 import java.util.concurrent.ExecutionException
 import kotlin.time.Duration.Companion.seconds
 
 /**
  * @author Alberto Lazari
  */
-class VPermissionManager private constructor() {
-    private val permissionCache = PermissionCache(
+object VPermissionService : IVPermissionManager.Stub() {
+    @JvmStatic
+    fun get(): VPermissionService {
+        return this
+    }
+
+    internal val permissionCache = PermissionCache(
         VEnvironment.getPermissionFile(), PermissionFileParser()
     )
 
@@ -33,8 +43,9 @@ class VPermissionManager private constructor() {
         permissionCache.init()
 
         // Reset granted once status from all runtime permissions
-        permissionCache.update { permissions: MutableMap<Int, AppPermissions>? ->
+        permissionCache.update { permissions: PersistentMap<Int, AppPermissions>? ->
             // Iterate on all virtual apps' permissions
+
             permissions!!.values.forEach { appPermissions: AppPermissions? ->
                 appPermissions!!.getAllPermissions(RuntimePermission::class.java)
                     .forEach { (_: String?, permission: RuntimePermission?) ->
@@ -44,6 +55,8 @@ class VPermissionManager private constructor() {
                         }
                     }
             }
+
+            permissions
         }
     }
 
@@ -52,7 +65,9 @@ class VPermissionManager private constructor() {
      * @return App permissions for @uid.
      * @throws SecurityException if a VUID is trying to access permissions for a different @uid.
      */
-    fun getAppPermissions(uid: Int): AppPermissions? {
+    override fun getAppPermissions(uid: Int): AppPermissions? {
+        SecurityUtils.enforceCallingUid(uid)
+
         return permissionCache.read(uid) { it }
     }
 
@@ -95,38 +110,43 @@ class VPermissionManager private constructor() {
     /**
      * Initialize permissions for a new @uid, reading them from the application Manifest XML.
      */
-    fun initPermissionsForUid(uid: Int, pkg: VPackage) {
-        permissionCache.update { permissions: MutableMap<Int, AppPermissions>? ->
+    override fun initPermissionsForUid(uid: Int, pkg: VPackage) {
+        SecurityUtils.enforceCallingUid(uid)
+
+        permissionCache.update { permissions: PersistentMap<Int, AppPermissions>? ->
             val set = pkg.requestedPermissions.toSet()
             val appPermissions = createAppPermissions(uid, set, pkg.permissions)
-            permissions!![uid] = appPermissions
+            permissions?.putting(uid, appPermissions)
         }
     }
 
     /**
      * Remove permissions for @uid.
      */
-    fun removePermissionsForUid(uid: Int) {
-        permissionCache.update { permissions: MutableMap<Int, AppPermissions>? ->
-            permissions!!.remove(uid)
+    override fun removePermissionsForUid(uid: Int) {
+        SecurityUtils.enforceCallingUid(uid)
+
+        permissionCache.update { permissions: PersistentMap<Int, AppPermissions>? ->
+            permissions?.removing(uid)
         }
     }
 
     /**
      * Check whether @permission of any type is granted for @uid.
-     * 
+     *
      * @return - PackageManager.PERMISSION_GRANTED if permission is currently granted
      * - PackageManager.PERMISSION_DENIED otherwise
      */
-    fun checkPermission(permission: String?, uid: Int): Int {
+    override fun checkPermission(permission: String?, uid: Int): Int {
         val realPermission = getPermission(permission, uid)
         if (permission == null || realPermission == null) {
             return PackageManager.PERMISSION_DENIED
         }
-        return if (realPermission.isGranted())
+        return if (realPermission.isGranted()) {
             PackageManager.PERMISSION_GRANTED
-        else
+        } else {
             PackageManager.PERMISSION_DENIED
+        }
     }
 
     /**
@@ -134,36 +154,27 @@ class VPermissionManager private constructor() {
      * @return true if an explanation about why the app needs a particular permission should be
      * shown: i.e. the user already denied the permission once (but not permanently).
      */
-    fun shouldShowRequestPermissionRationale(
+    override fun shouldShowRequestPermissionRationale(
         permissionName: String?,
         uid: Int
     ): Boolean {
+        SecurityUtils.enforceCallingUid(uid)
+
         val permission = getPermission<RuntimePermission>(permissionName, uid)
         return permission != null && permission.shouldShowRequestPermissionRationale()
-    }
-
-    /**
-     * Update @permissionName for a specific @uid.
-     */
-    fun <T : Permission> updatePermission(
-        type: Class<T>,
-        permissionName: String?, uid: Int,
-        operation: (T) -> Unit?
-    ) {
-        updatePermission(type, permissionName, uid, operation)
     }
 
     /**
      * Update @permissionName of @type for a specific @uid.
      */
     @JvmName("updatePermissionInline")
-    private inline fun <reified T : Permission> updatePermission(
+    internal inline fun <reified T : Permission> updatePermission(
         permissionName: String?, uid: Int, crossinline operation: (T) -> Unit
-    ) {
-        permissionCache.update(uid) { appPermissions: AppPermissions ->
+    ): Boolean {
+        return permissionCache.update(uid) { appPermissions: AppPermissions ->
             val permission = appPermissions.getPermission<T>(permissionName)
                 ?: // Do not perform operation if permission not found
-                return@update
+                return@update false
 
             operation.invoke(permission)
 
@@ -200,14 +211,17 @@ class VPermissionManager private constructor() {
                     }
                 }
             }
+            true
         }
     }
 
     /**
      * Allow a runtime permission (or its group).
      */
-    fun allowPermission(permissionName: String?, uid: Int) {
-        updatePermission(permissionName, uid) { permission: Permission? ->
+    override fun allowPermission(permissionName: String?, uid: Int): Boolean {
+        SecurityUtils.enforceCallingUid(uid)
+
+        return updatePermission(permissionName, uid) { permission: Permission? ->
             permission!!.setStatus(Permission.Status.GRANTED)
             if (permission is PermissionGroup) {
                 permission.getPermissions()
@@ -236,8 +250,10 @@ class VPermissionManager private constructor() {
      * Reflect the intention of the user of not allowing a permission (or a group).
      * If a runtime permission has been denied once in the past it will be permanently denied.
      */
-    fun doNotAllowPermission(permissionName: String?, uid: Int) {
-        updatePermission(permissionName, uid) { permission: Permission? ->
+    override fun doNotAllowPermission(permissionName: String?, uid: Int): Boolean {
+        SecurityUtils.enforceCallingUid(uid)
+
+        return updatePermission(permissionName, uid) { permission: Permission? ->
             if (permission is InstallPermission) {
                 // Simply deny install permissions
                 permission.setStatus(Permission.Status.DENIED)
@@ -261,6 +277,28 @@ class VPermissionManager private constructor() {
                     permission.setDeniedOnce()
                 }
             }
+        }
+    }
+
+    override fun followGroupPermission(permissionName: String?, uid: Int): Boolean {
+        SecurityUtils.enforceCallingUid(uid)
+
+        return updatePermission<RuntimePermission>(
+            permissionName, uid
+        ) { newPermission ->
+            val group = newPermission.permissionGroup
+            newPermission.followGroup()
+            group?.getStatus()?.let { newPermission.setStatus(it) }
+        }
+    }
+
+    override fun alwaysAskPermission(permissionName: String?, uid: Int): Boolean {
+        SecurityUtils.enforceCallingUid(uid)
+
+        return updatePermission<Permission>(
+            permissionName, uid
+        ) { newPermission ->
+            newPermission.setStatus(Permission.Status.ALWAYS_ASK)
         }
     }
 
@@ -378,64 +416,56 @@ class VPermissionManager private constructor() {
         return AppPermissions(appPermissions)
     }
 
-    companion object {
-        private val TAG: String = VPermissionManager::class.java.getSimpleName()
-        private val INSTANCE = VPermissionManager()
+    private val TAG: String = VPermissionManager::class.java.getSimpleName()
 
-        // Permissions exceptions
-        @JvmField
-        val LOCATION_PERMISSIONS = setOf(
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_BACKGROUND_LOCATION
-        )
+    // Permissions exceptions
+    @JvmField
+    val LOCATION_PERMISSIONS = setOf(
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION
+    )
 
-        @JvmField
-        val BACKGROUND_PERMISSIONS = setOf(
-            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-            Manifest.permission.BODY_SENSORS_BACKGROUND
-        )
+    @JvmField
+    val BACKGROUND_PERMISSIONS = setOf(
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+        Manifest.permission.BODY_SENSORS_BACKGROUND
+    )
 
-        // When key is being granted, value should be too
-        @JvmField
-        val AUTO_GRANT_MAP: Map<String, String> = mapOf(
-            Manifest.permission.ACCESS_FINE_LOCATION to Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.ACCESS_BACKGROUND_LOCATION to Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.BODY_SENSORS_BACKGROUND to Manifest.permission.BODY_SENSORS,
-        )
+    // When key is being granted, value should be too
+    @JvmField
+    val AUTO_GRANT_MAP: Map<String, String> = mapOf(
+        Manifest.permission.ACCESS_FINE_LOCATION to Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION to Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.BODY_SENSORS_BACKGROUND to Manifest.permission.BODY_SENSORS,
+    )
 
-        @JvmStatic
-        fun get(): VPermissionManager {
-            return INSTANCE
-        }
-
-        /**
-         * @return Group name of @permission, or `null` if not in any group
-         */
-        private fun getPermissionGroup(permission: String): String? {
-            val groupFuture = CompletableDeferred<String?>()
-            val ctx = VirtualCore.get().context
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                ctx.packageManager
-                    .getGroupOfPlatformPermission(
-                        permission,
-                        ctx.mainExecutor
-                    ) { group: String? ->
-                        groupFuture.complete(group)
-                    }
-            }
-            try {
-                return runBlocking {
-                    withTimeoutOrNull(10.seconds) {
-                        groupFuture.await()
-                    }
+    /**
+     * @return Group name of @permission, or `null` if not in any group
+     */
+    fun getPermissionGroup(permission: String): String? {
+        val groupFuture = CompletableDeferred<String?>()
+        val ctx = VirtualCore.get().context
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ctx.packageManager
+                .getGroupOfPlatformPermission(
+                    permission,
+                    ctx.mainExecutor
+                ) { group: String? ->
+                    groupFuture.complete(group)
                 }
-            } catch (e: ExecutionException) {
-                e.printStackTrace()
-            } catch (e: InterruptedException) {
-                e.printStackTrace()
-            }
-            return null
         }
+        try {
+            return runBlocking {
+                withTimeoutOrNull(10.seconds) {
+                    groupFuture.await()
+                }
+            }
+        } catch (e: ExecutionException) {
+            e.printStackTrace()
+        } catch (e: InterruptedException) {
+            e.printStackTrace()
+        }
+        return null
     }
 }

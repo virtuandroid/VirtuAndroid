@@ -4,6 +4,9 @@ import com.lody.virtual.client.core.VirtualCore
 import com.lody.virtual.helper.utils.LockedOperation
 import com.lody.virtual.helper.utils.VLog
 import com.lody.virtual.os.VBinder
+import kotlinx.collections.immutable.PersistentMap
+import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.collections.immutable.toPersistentMap
 import timber.log.Timber
 import java.io.File
 import java.nio.channels.Channels
@@ -14,12 +17,13 @@ import java.nio.channels.FileChannel
  */
 internal class PermissionCache(file: File?, private val parser: PermissionFileParser) :
     LockedOperation(file) {
-    private var cache: MutableMap<Int, AppPermissions>? = null
+    private var cache: PersistentMap<Int, AppPermissions>? = null
 
     override fun load(channel: FileChannel?) {
         try {
             Timber.d("Loading permission cache from file")
-            cache = parser.read(Channels.newInputStream(channel))
+            val result = parser.read(Channels.newInputStream(channel)).toPersistentMap()
+            cache = result
         } catch (e: Exception) {
             Timber.e(e, "Could not read permissions file")
         }
@@ -43,7 +47,7 @@ internal class PermissionCache(file: File?, private val parser: PermissionFilePa
         // Gets called when the permission file is missing and has to be created
         val onFileCreate = Runnable {
             // Create the file with empty permissions
-            cache = HashMap()
+            cache = persistentHashMapOf()
         }
         init(onFileCreate)
     }
@@ -52,7 +56,6 @@ internal class PermissionCache(file: File?, private val parser: PermissionFilePa
      * Perform a read operation on @uid permissions
      */
     fun <T> read(uid: Int, operation: (AppPermissions?) -> T?): T? {
-        requirePermissionToManage(uid)
         return read {
             val permissions = cache!![uid]
             operation.invoke(permissions)
@@ -65,22 +68,19 @@ internal class PermissionCache(file: File?, private val parser: PermissionFilePa
     @Synchronized
     fun update(
         uid: Int,
-        operation: (AppPermissions) -> Unit
-    ) {
-        requirePermissionToManage(uid)
-        update<Any?> {
+        operation: (AppPermissions) -> Boolean
+    ): Boolean {
+        return update<Boolean> {
             val permissions = cache!![uid] ?: throw RuntimeException(
                 String.format(
                     "Permissions for user %d not found", uid
                 )
             )
             operation.invoke(permissions)
-            null
         }
     }
 
     fun readAll(): Map<Int, AppPermissions>? {
-        // TODO check lock
         return cache
     }
 
@@ -88,26 +88,13 @@ internal class PermissionCache(file: File?, private val parser: PermissionFilePa
      * Perform an update operation on entire permission cache
      */
     @Synchronized
-    fun update(operation: (MutableMap<Int, AppPermissions>?) -> Unit) {
+    fun update(operation: (PersistentMap<Int, AppPermissions>?) -> PersistentMap<Int, AppPermissions>?) {
         requirePermissionToManageAll()
 
         update<Any?> {
-            operation.invoke(cache)
+            val result = operation.invoke(cache)
+            cache = result
             null
-        }
-    }
-
-    /**
-     * @throws SecurityException if a VUID is trying to access permissions for a different @uid
-     */
-    private fun requirePermissionToManage(uid: Int) {
-        val callingUid = VBinder.getCallingUid()
-        if (CORE.isVAppProcess && callingUid != uid) {
-            throw SecurityException(
-                String.format(
-                    "User %d is trying to access user %d permissions", callingUid, uid
-                )
-            )
         }
     }
 

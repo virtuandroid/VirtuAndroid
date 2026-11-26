@@ -1,5 +1,8 @@
 package com.lody.virtual.server.permission
 
+import android.os.Parcel
+import android.os.Parcelable
+
 /**
  * @author Alberto Lazari
  * Install-time permissions are granted by default on application install, with the exception
@@ -15,5 +18,27 @@ class InstallPermission : Permission {
 
     override fun isValidStatus(status: Status?): Boolean {
         return status == Status.GRANTED || status == Status.DENIED || status == Status.DECLARED
+    }
+
+    override fun describeContents(): Int = 0
+
+    override fun writeToParcel(dest: Parcel, flags: Int) {
+        dest.writeString(name)
+        dest.writeString(statusToString())
+    }
+
+    companion object {
+        @JvmField
+        val CREATOR: Parcelable.Creator<InstallPermission> =
+            object : Parcelable.Creator<InstallPermission> {
+                override fun createFromParcel(source: Parcel): InstallPermission {
+                    val name = source.readString()
+                    val statusString = source.readString()
+                    return InstallPermission(name, statusString)
+                }
+
+                override fun newArray(size: Int): Array<InstallPermission?> =
+                    arrayOfNulls(size)
+            }
     }
 }

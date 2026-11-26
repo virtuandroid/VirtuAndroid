@@ -7,7 +7,6 @@ import static android.content.pm.PackageManager.NameNotFoundException;
 import android.Manifest;
 import android.app.Activity;
 import android.app.Dialog;
-import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
@@ -20,12 +19,9 @@ import android.widget.TextView;
 import static com.lody.virtual.server.permission.Permission.Status;
 
 import com.lody.virtual.R;
-import com.lody.virtual.client.hook.proxies.am.ActivityManagerStub;
 import com.lody.virtual.helper.utils.VLog;
-import com.lody.virtual.os.VBinder;
-import com.lody.virtual.os.VEnvironment;
 import com.lody.virtual.server.permission.RuntimePermission;
-import com.lody.virtual.server.permission.VPermissionManager;
+import com.lody.virtual.server.permission.VPermissionService;
 
 import mirror.android.content.pm.PackageManager;
 
@@ -53,7 +49,7 @@ public class GrantPermissionsActivity extends Activity {
     public static final String EXTRA_APP_UID =
             "com.lody.virtual.client.stub.extra.REQUEST_PERMISSIONS_APP_UID";
 
-    private final VPermissionManager permissionManager = VPermissionManager.get();
+    private final VPermissionService permissionManager = VPermissionService.get();
     private final Set<String> groupsToSkip = new HashSet<>();
 
     private String[] permissions;
@@ -79,7 +75,7 @@ public class GrantPermissionsActivity extends Activity {
         // When requesting multiple permissions
         if (permissions.length > 1) {
             Arrays.stream(permissions).forEach(permissionName -> {
-                if (VPermissionManager.BACKGROUND_PERMISSIONS.contains(permissionName)) {
+                if (VPermissionService.BACKGROUND_PERMISSIONS.contains(permissionName)) {
                     // Do not show dialog if requesting any background permission
                     setResultAndFinish(RESULT_CANCELED);
                 }
@@ -105,9 +101,9 @@ public class GrantPermissionsActivity extends Activity {
             setGrantResult(permissionManager.checkPermission(groupName, uid));
             return;
         }
-        if (VPermissionManager.AUTO_GRANT_MAP.containsKey(permissionName)) {
+        if (VPermissionService.AUTO_GRANT_MAP.containsKey(permissionName)) {
             final var weakPermission = permissionManager.getPermission(
-                    VPermissionManager.AUTO_GRANT_MAP.get(permissionName), uid);
+                    VPermissionService.AUTO_GRANT_MAP.get(permissionName), uid);
 
             if (weakPermission != null && !weakPermission.isGranted()) {
                 setGrantResult(permissionManager.checkPermission(permissionName, uid));
@@ -295,7 +291,7 @@ public class GrantPermissionsActivity extends Activity {
             }
             doNotAllowButton.setText(getString(R.string.permission_manage_keep_approximate));
         }
-        if (VPermissionManager.BACKGROUND_PERMISSIONS.contains(permissionName)) {
+        if (VPermissionService.BACKGROUND_PERMISSIONS.contains(permissionName)) {
             allowButton.setText(getString(R.string.permission_manage_allow_all_time));
         }
 

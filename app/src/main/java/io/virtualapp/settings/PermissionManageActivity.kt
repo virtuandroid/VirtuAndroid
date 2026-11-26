@@ -1,381 +1,342 @@
-package io.virtualapp.settings;
+package io.virtualapp.settings
 
-import android.app.Activity;
-import android.content.Context;
-import android.content.Intent;
-import android.os.Bundle;
-import android.widget.ImageView;
-import android.widget.PopupMenu;
-
-import androidx.annotation.Nullable;
-import androidx.preference.Preference;
-import androidx.preference.PreferenceCategory;
-import androidx.preference.PreferenceFragmentCompat;
-import androidx.preference.PreferenceViewHolder;
-
-import static com.lody.virtual.server.permission.Permission.Status.*;
-
-import com.lody.virtual.server.permission.AppPermissions;
-import com.lody.virtual.server.permission.InstallPermission;
-import com.lody.virtual.server.permission.RuntimePermission;
-import com.lody.virtual.server.permission.Permission;
-import com.lody.virtual.server.permission.PermissionGroup;
-import com.lody.virtual.server.permission.VPermissionManager;
-
-import org.jetbrains.annotations.NotNull;
-
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.TreeMap;
-
-import io.virtualapp.R;
-import io.virtualapp.abs.ui.VActivity;
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.os.Bundle
+import android.view.MenuItem
+import android.widget.ImageView
+import android.widget.PopupMenu
+import androidx.preference.Preference
+import androidx.preference.PreferenceCategory
+import androidx.preference.PreferenceFragmentCompat
+import androidx.preference.PreferenceViewHolder
+import com.lody.virtual.client.ipc.VPermissionManager
+import com.lody.virtual.server.permission.InstallPermission
+import com.lody.virtual.server.permission.Permission
+import com.lody.virtual.server.permission.PermissionGroup
+import com.lody.virtual.server.permission.PermissionGroup.Companion.getGroupIconRes
+import com.lody.virtual.server.permission.RuntimePermission
+import com.virtualxposed.utils.Utils.getSerializableSafe
+import io.virtualapp.abs.ui.VActivity
+import java.util.TreeMap
+import java.util.function.Consumer
 
 /**
  * @author Alberto Lazari
  * @date 14/8/24
  */
-public class PermissionManageActivity extends VActivity {
-    private static final String TAG = PermissionManageActivity.class.getSimpleName();
+class PermissionManageActivity : VActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
 
-    public static final String EXTRA_APP_NAME =
-            "io.virtualapp.settings.extra.PERMISSION_MANAGE_APP_NAME";
-    public static final String EXTRA_APP_UID =
-            "io.virtualapp.settings.extra.PERMISSION_MANAGE_APP_UID";
-    public static final String EXTRA_PERMISSIONS_TYPE =
-            "io.virtualapp.settings.extra.PERMISSION_MANAGE_PERMISSIONS_TYPE";
+        val extras = intent.extras
+        val appName = extras!!.getString(EXTRA_APP_NAME)
+        val uid = extras.getInt(EXTRA_APP_UID)
+        val type = extras.getSerializableSafe<Class<out Permission?>>(EXTRA_PERMISSIONS_TYPE)!!
+        setTitle(appName)
 
-    @Override
-    protected void onCreate(@Nullable Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        final var extras = getIntent().getExtras();
-        final String appName = extras.getString(EXTRA_APP_NAME);
-        final int uid = extras.getInt(EXTRA_APP_UID);
-        final var type = (Class<? extends Permission>) extras
-                .getSerializable(EXTRA_PERMISSIONS_TYPE);
-
-        setTitle(appName);
-
-        getSupportFragmentManager()
-                .beginTransaction()
-                .replace(android.R.id.content, new PermissionsFragment(type, appName, uid))
-                .commit();
+        supportFragmentManager
+            .beginTransaction()
+            .replace(
+                android.R.id.content,
+                PermissionsFragment(type, appName, uid)
+            )
+            .commit()
     }
 
-    public static class PermissionsFragment extends PreferenceFragmentCompat {
+    class PermissionsFragment(
+        private val type: Class<out Permission?>, private val appName: String?,
+        private val uid: Int
+    ) : PreferenceFragmentCompat() {
+        private val permissionManager = VPermissionManager.get()
 
-        private static final String ALLOWED_CATEGORY_KEY = "allowed";
-        private static final String ASK_CATEGORY_KEY = "ask";
-        private static final String DENIED_CATEGORY_KEY = "not_allowed";
-        private static final String FOLLOW_GROUP_CATEGORY_KEY = "follow_group";
+        private var ctx: Activity? = null
 
-        private static final Map<Class<? extends Permission>, String> TYPE_TO_NAME_MAP = Map.of(
-                InstallPermission.class, "install",
-                RuntimePermission.class, "runtime"
-        );
+        private var categories: Set<PreferenceCategory> = emptySet()
+        private lateinit var allowedCategory: PreferenceCategory
+        private lateinit var askCategory: PreferenceCategory
+        private lateinit var deniedCategory: PreferenceCategory
+        private lateinit var groupCategory: PreferenceCategory
 
-        private final VPermissionManager permissionManager = VPermissionManager.get();
-        private final Class<? extends Permission> type;
-        private final String appName;
-        private final int uid;
+        override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+            setPreferencesFromResource(io.virtualapp.R.xml.permissions_manage_preferences, rootKey)
 
-        private Activity ctx;
+            allowedCategory = findPreference(ALLOWED_CATEGORY_KEY)!!
+            askCategory = findPreference(ASK_CATEGORY_KEY)!!
+            deniedCategory = findPreference(DENIED_CATEGORY_KEY)!!
+            groupCategory = findPreference(FOLLOW_GROUP_CATEGORY_KEY)!!
 
-        private Set<PreferenceCategory> categories;
-        private PreferenceCategory allowedCategory;
-        private PreferenceCategory askCategory;
-        private PreferenceCategory deniedCategory;
-        private PreferenceCategory groupCategory;
+            categories = setOf(
+                allowedCategory,
+                askCategory,
+                deniedCategory,
+                groupCategory
+            )
 
-        public PermissionsFragment(final Class<? extends Permission> type, final String appName,
-                                   final int uid) {
+            ctx = activity
 
-            this.type = type;
-            this.appName = appName;
-            this.uid = uid;
-        }
-
-        @Override
-        public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
-            setPreferencesFromResource(R.xml.permissions_manage_preferences, rootKey);
-
-            allowedCategory = (PreferenceCategory) findPreference(ALLOWED_CATEGORY_KEY);
-            askCategory = (PreferenceCategory) findPreference(ASK_CATEGORY_KEY);
-            deniedCategory = (PreferenceCategory) findPreference(DENIED_CATEGORY_KEY);
-            groupCategory = (PreferenceCategory) findPreference(FOLLOW_GROUP_CATEGORY_KEY);
-
-            categories = Set.of(allowedCategory, askCategory, deniedCategory, groupCategory);
-
-            ctx = getActivity();
-
-            AppPermissions appPermissions = permissionManager.getAppPermissions(uid);
-            @NotNull Map<@org.jetbrains.annotations.Nullable String, ? extends Permission> allPermissions;
-
-            if (appPermissions != null) {
-                allPermissions = appPermissions.getAllPermissions(type);
-            } else {
-                allPermissions = Map.of();
-            }
+            val appPermissions = permissionManager.getAppPermissions(uid)
+            val allPermissions = appPermissions?.getAllPermissions(type) ?: emptyMap()
 
             // Sort permissions
-            new TreeMap<>(allPermissions)
-                    .forEach((name, permission) -> {
-                        final var preference = createPermissionPreference(permission);
-                        getCategoryFor(permission).addPreference(preference);
-                    });
+            TreeMap(allPermissions)
+                .forEach { (name: String?, permission: Permission?) ->
+                    val preference = createPermissionPreference(permission!!)
+                    getCategoryFor(permission).addPreference(preference)
+                }
 
-            updateNoneTexts();
+            updateNoneTexts()
 
-            final var overrideCategory = (PreferenceCategory)
-                    findPreference("override_permissions");
-            if (!type.equals(PermissionGroup.class)) {
-                ctx.setTitle("Override " + TYPE_TO_NAME_MAP.get(type) + " permissions");
-                overrideCategory.setVisible(false);
-                return;
+            val overrideCategory =
+                findPreference<Preference?>("override_permissions") as PreferenceCategory?
+            if (type != PermissionGroup::class.java) {
+                ctx!!.setTitle("Override " + TYPE_TO_NAME_MAP[type] + " permissions")
+                overrideCategory!!.isVisible = false
+                return
             }
 
             // Set listener on permissions override settings
-            TYPE_TO_NAME_MAP.keySet().forEach(overrideType -> {
-                findPreference("override_" + TYPE_TO_NAME_MAP.get(overrideType))
-                        .setOnPreferenceClickListener(preference -> {
-                            final Intent intent = new Intent(ctx, PermissionManageActivity.class);
-                            intent.putExtra(EXTRA_APP_NAME, appName);
-                            intent.putExtra(EXTRA_APP_UID, uid);
-                            intent.putExtra(EXTRA_PERMISSIONS_TYPE, overrideType);
-                            startActivity(intent);
-                            return true;
-                        });
-            });
+            TYPE_TO_NAME_MAP.keys.forEach(Consumer { overrideType: Class<out Permission?>? ->
+                findPreference<Preference?>(
+                    "override_" + TYPE_TO_NAME_MAP[overrideType]
+                )!!.onPreferenceClickListener =
+                    Preference.OnPreferenceClickListener {
+                        val intent = Intent(ctx, PermissionManageActivity::class.java)
+                        intent.putExtra(EXTRA_APP_NAME, appName)
+                        intent.putExtra(EXTRA_APP_UID, uid)
+                        intent.putExtra(EXTRA_PERMISSIONS_TYPE, overrideType)
+                        startActivity(intent)
+                        true
+                    }
+            })
             // Create an invisible preference to show the divider under last element
-            final var phantomPreference = new Preference(ctx) {
-                @Override
-                public void onBindViewHolder(PreferenceViewHolder holder) {
-                    super.onBindViewHolder(holder);
-                    holder.setDividerAllowedAbove(true);
-                    final var itemView = holder.itemView;
-                    final var params = itemView.getLayoutParams();
-                    params.height = 0;
-                    itemView.setLayoutParams(params);
+            val phantomPreference: Preference = object : Preference(ctx!!) {
+                override fun onBindViewHolder(holder: PreferenceViewHolder) {
+                    super.onBindViewHolder(holder)
+                    holder.isDividerAllowedAbove = true
+                    val itemView = holder.itemView
+                    val params = itemView.layoutParams
+                    params.height = 0
+                    itemView.setLayoutParams(params)
                 }
-            };
-            overrideCategory.addPreference(phantomPreference);
-        }
-
-        private PreferenceCategory getCategoryFor(final Permission permission) {
-            if (permission instanceof RuntimePermission runtimePermission
-                    && !runtimePermission.isOverridden()) {
-                return groupCategory;
             }
-            return switch (permission.getStatus()) {
-                case DECLARED -> allowedCategory;
-                case GRANTED -> allowedCategory;
-                case ALWAYS_ASK -> askCategory;
-                case UNREQUESTED -> deniedCategory;
-                case DENIED -> deniedCategory;
-            };
+            overrideCategory!!.addPreference(phantomPreference)
         }
 
-        private void updateCategories() {
-            categories.forEach(category -> {
+        private fun getCategoryFor(permission: Permission): PreferenceCategory {
+            if (permission is RuntimePermission
+                && !permission.isOverridden
+            ) {
+                return groupCategory
+            }
+            return when (permission.getStatus()) {
+                Permission.Status.DECLARED -> allowedCategory
+                Permission.Status.GRANTED -> allowedCategory
+                Permission.Status.ALWAYS_ASK -> askCategory
+                Permission.Status.UNREQUESTED -> deniedCategory
+                Permission.Status.DENIED -> deniedCategory
+            }
+        }
+
+        private fun updateCategories() {
+            categories.forEach { category ->
                 // Update permissions positions
-                for (int i = 0; i < category.getPreferenceCount(); ++i) {
-                    final var preference = category.getPreference(i);
-                    if (preference instanceof PermissionPreference permissionPreference) {
-                        final var permission = permissionManager.getPermission(
-                                permissionPreference.getPermission().getName(), uid);
-                        final var newCategory = getCategoryFor(permission);
-                        if (category != newCategory) {
-                            category.removePreference(permissionPreference);
+                var i = 0
+                while (i < category.preferenceCount) {
+                    val preference = category.getPreference(i)
+                    if (preference is PermissionPreference) {
+                        val permission = permissionManager.getPermission(
+                            preference.permission.name, uid
+                        )
+                        val newCategory = getCategoryFor(permission!!)
+                        if (category !== newCategory) {
+                            category.removePreference(preference)
                             // Iterating on category and the current item was removed.
                             // Keep index at the same position.
-                            --i;
-                            newCategory.addPreference(permissionPreference);
+                            --i
+                            newCategory.addPreference(preference)
                         }
                     }
+                    ++i
                 }
-            });
-            updateNoneTexts();
+            }
+            updateNoneTexts()
         }
 
-        private void updateNoneTexts() {
-            categories.forEach(category -> {
-                final var noneTextKey = "none_" + category.getKey() + "_text";
-                switch (category.getKey()) {
-                    case ALLOWED_CATEGORY_KEY, DENIED_CATEGORY_KEY -> {
-                        final var count = category.getPreferenceCount();
-                        final var noneText = findPreference(noneTextKey);
+        private fun updateNoneTexts() {
+            categories.forEach { category ->
+                val noneTextKey = "none_" + category.key + "_text"
+                when (category.key) {
+                    ALLOWED_CATEGORY_KEY, DENIED_CATEGORY_KEY -> {
+                        val count = category.preferenceCount
+                        val noneText = findPreference<Preference?>(noneTextKey)
                         if (count == 1 && noneText != null) {
                             // The only preference is the none text, leave it that way
-                            return;
+                            return@forEach
                         }
                         if (count == 0) {
-                            hideCategory(category, true);
+                            hideCategory(category, true)
                         } else {
-                            category.setVisible(true);
+                            category.isVisible = true
                             if (noneText != null) {
-                                category.removePreference(noneText);
+                                category.removePreference(noneText)
                             }
                         }
                     }
-                    default -> {
-                        if (category.getPreferenceCount() == 0) {
-                            hideCategory(category, false);
+
+                    else -> {
+                        if (category.preferenceCount == 0) {
+                            hideCategory(category, false)
                         } else {
-                            category.setVisible(true);
+                            category.isVisible = true
                         }
                     }
                 }
-                ;
-            });
+            }
         }
 
-        private void hideCategory(final PreferenceCategory category, final boolean showNoneText) {
+        private fun hideCategory(category: PreferenceCategory, showNoneText: Boolean) {
             // Do not show "No permissions allowed/denied" for runtime permissions, because they
             // could all be following their group
-            if (!showNoneText || type.equals(RuntimePermission.class)) {
-                category.setVisible(false);
-                return;
+            if (!showNoneText || type == RuntimePermission::class.java) {
+                category.isVisible = false
+                return
             }
-            final var categoryKey = category.getKey();
-            final var noneTextKey = "none_" + categoryKey + "_text";
-
-            final int titleRes;
-            if (Objects.equals(categoryKey, "not_allowed")) {
-                titleRes = R.string.permission_manage_none_not_allowed;
+            val categoryKey = category.key
+            val noneTextKey = "none_" + categoryKey + "_text"
+            val titleRes: Int = if (categoryKey == "not_allowed") {
+                io.virtualapp.R.string.permission_manage_none_not_allowed
             } else {
-                titleRes = R.string.permission_manage_none_allowed;
+                io.virtualapp.R.string.permission_manage_none_allowed
             }
-            final var noneText = new Preference(ctx) {
-                @Override
-                public void onBindViewHolder(PreferenceViewHolder holder) {
-                    super.onBindViewHolder(holder);
-                    holder.setDividerAllowedBelow(false);
+            val noneText: Preference = object : Preference(ctx!!) {
+                override fun onBindViewHolder(holder: PreferenceViewHolder) {
+                    super.onBindViewHolder(holder)
+                    holder.isDividerAllowedBelow = false
                 }
-            };
-            noneText.setKey(noneTextKey);
-            noneText.setTitle(titleRes);
-            noneText.setSelectable(false);
-            noneText.setLayoutResource(R.layout.none_permissions);
-
-            category.addPreference(noneText);
-        }
-
-        private PermissionPreference createPermissionPreference(final Permission permission) {
-            final var name = permission.getName();
-            final var readableName = permission.getReadableName();
-            final var groupIconRes = permission instanceof RuntimePermission runtimePermission
-                    ? runtimePermission.getGroupIconRes()
-                    : PermissionGroup.getGroupIconRes(name);
-            final var preference = new PermissionPreference(ctx, permission);
-            preference.setKey("permission_manage_preference_" + name);
-            preference.setTitle(readableName);
-            preference.setSummary(name);
-            preference.setLayoutResource(R.layout.item_permission_manage);
-            preference.setIcon(groupIconRes);
-            return preference;
-        }
-
-        private class PermissionPreference extends Preference {
-
-            private final Permission permission;
-
-            private PreferenceViewHolder holder;
-            private ImageView iconView;
-
-            public PermissionPreference(final Context ctx, final Permission permission) {
-                super(ctx);
-                this.permission = permission;
             }
+            noneText.setKey(noneTextKey)
+            noneText.setTitle(titleRes)
+            noneText.isSelectable = false
+            noneText.layoutResource = io.virtualapp.R.layout.none_permissions
 
-            @Override
-            public void onBindViewHolder(final PreferenceViewHolder holder) {
-                super.onBindViewHolder(holder);
-                this.holder = holder;
+            category.addPreference(noneText)
+        }
 
-                holder.setDividerAllowedAbove(true);
-                holder.setDividerAllowedBelow(true);
+        private fun createPermissionPreference(permission: Permission): PermissionPreference {
+            val name = permission.name
+            val readableName = permission.readableName
+            val groupIconRes = if (permission is RuntimePermission)
+                permission.groupIconRes
+            else
+                getGroupIconRes(name)
+            val preference = PermissionPreference(ctx!!, permission)
+            preference.setKey("permission_manage_preference_$name")
+            preference.title = readableName
+            preference.setSummary(name)
+            preference.layoutResource = io.virtualapp.R.layout.item_permission_manage
+            preference.setIcon(groupIconRes)
+            return preference
+        }
+
+        private inner class PermissionPreference(ctx: Context, val permission: Permission) :
+            Preference(ctx) {
+            private var holder: PreferenceViewHolder? = null
+            private var iconView: ImageView? = null
+
+            override fun onBindViewHolder(holder: PreferenceViewHolder) {
+                super.onBindViewHolder(holder)
+                this.holder = holder
+
+                holder.isDividerAllowedAbove = true
+                holder.isDividerAllowedBelow = true
 
                 if (iconView == null) {
-                    iconView = (ImageView) holder.findViewById(android.R.id.icon);
+                    iconView = holder.findViewById(android.R.id.icon) as ImageView?
                 }
             }
 
-            @Override
-            protected void onClick() {
-                super.onClick();
-                showContextMenu();
-            }
-
-            public Permission getPermission() {
-                return permission;
+            override fun onClick() {
+                super.onClick()
+                showContextMenu()
             }
 
 
-            private void showContextMenu() {
-                final PopupMenu popupMenu = new PopupMenu(ctx, holder.itemView);
-                if (permission instanceof InstallPermission) {
+            fun showContextMenu() {
+                val popupMenu = PopupMenu(ctx, holder!!.itemView)
+                if (permission is InstallPermission) {
                     // Cannot change declared permissions, it would break assumptions
-                    if (permission.getStatus() != DECLARED) {
-                        popupMenu.inflate(R.menu.install_permission_manage_menu);
+                    if (permission.getStatus() != Permission.Status.DECLARED) {
+                        popupMenu.inflate(io.virtualapp.R.menu.install_permission_manage_menu)
                     }
-                } else if (permission instanceof RuntimePermission runtimePermission) {
-                    popupMenu.inflate(R.menu.runtime_permission_manage_menu);
-                    if (runtimePermission.hasPermissionGroup()) {
+                } else if (permission is RuntimePermission) {
+                    popupMenu.inflate(io.virtualapp.R.menu.runtime_permission_manage_menu)
+                    if (permission.hasPermissionGroup()) {
                         // Show "Follow group" menu action
-                        popupMenu.getMenu()
-                                .findItem(R.id.action_group)
-                                .setVisible(true);
+                        popupMenu.menu
+                            .findItem(io.virtualapp.R.id.action_group).isVisible = true
                     }
-                } else if (permission instanceof PermissionGroup) {
-                    popupMenu.inflate(R.menu.permission_group_manage_menu);
+                } else if (permission is PermissionGroup) {
+                    popupMenu.inflate(io.virtualapp.R.menu.permission_group_manage_menu)
                 }
 
-                popupMenu.setOnMenuItemClickListener(item -> {
-                    handleMenuChoice(item.getItemId());
-                    return true;
-                });
+                popupMenu.setOnMenuItemClickListener { item: MenuItem? ->
+                    handleMenuChoice(item!!.itemId)
+                }
                 try {
-                    popupMenu.show();
-                } catch (Throwable e) {
-                    e.printStackTrace();
+                    popupMenu.show()
+                } catch (e: Throwable) {
+                    e.printStackTrace()
                 }
             }
 
-            private void handleMenuChoice(final int choice) {
-                if (choice == R.id.action_group) {
-                    permissionManager.updatePermission(
-                            RuntimePermission.class,
-                            permission.getName(), uid,
-                            newPermission -> {
-                                final var group = newPermission.getPermissionGroup();
-                                newPermission.followGroup();
-                                newPermission.setStatus(group.getStatus());
-                                return null;
-                            }
-                    );
-                    updateCategories();
-                    return;
+            fun handleMenuChoice(choice: Int): Boolean {
+                if (choice == io.virtualapp.R.id.action_group) {
+                    val result = permissionManager.followGroupPermission(permission.name, uid)
+                    updateCategories()
+                    return result
                 }
 
-                if (permission instanceof RuntimePermission runtimePermission) {
-                    runtimePermission.override();
+                if (permission is RuntimePermission) {
+                    permission.override()
                 }
-                if (choice == R.id.action_allow) {
-                    permissionManager.allowPermission(permission.getName(), uid);
-                } else if (choice == R.id.action_ask) {
-                    permissionManager.updatePermission(RuntimePermission.class, permission.getName(), uid,
-                            newPermission -> {
-                                newPermission.setStatus(ALWAYS_ASK);
-                                return null;
-                            });
-                } else if (choice == R.id.action_do_not_allow) {
-                    permissionManager.doNotAllowPermission(permission.getName(), uid);
+                val result = when (choice) {
+                    io.virtualapp.R.id.action_allow -> {
+                        permissionManager.allowPermission(permission.name, uid)
+                    }
+
+                    io.virtualapp.R.id.action_ask -> {
+                        permissionManager.alwaysAskPermission(permission.name, uid)
+                    }
+
+                    io.virtualapp.R.id.action_do_not_allow -> {
+                        permissionManager.doNotAllowPermission(permission.name, uid)
+                    }
+
+                    else -> false
                 }
-                updateCategories();
+                updateCategories()
+                return result
             }
-
         }
+
+        companion object {
+            private const val ALLOWED_CATEGORY_KEY = "allowed"
+            private const val ASK_CATEGORY_KEY = "ask"
+            private const val DENIED_CATEGORY_KEY = "not_allowed"
+            private const val FOLLOW_GROUP_CATEGORY_KEY = "follow_group"
+            private val TYPE_TO_NAME_MAP = mapOf(
+                InstallPermission::class.java to "install",
+                RuntimePermission::class.java to "runtime"
+            )
+        }
+    }
+
+    companion object {
+        const val EXTRA_APP_NAME: String = "io.virtualapp.settings.extra.PERMISSION_MANAGE_APP_NAME"
+        const val EXTRA_APP_UID: String = "io.virtualapp.settings.extra.PERMISSION_MANAGE_APP_UID"
+        const val EXTRA_PERMISSIONS_TYPE: String =
+            "io.virtualapp.settings.extra.PERMISSION_MANAGE_PERMISSIONS_TYPE"
     }
 }

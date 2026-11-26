@@ -22,6 +22,7 @@ import com.lody.virtual.server.job.VJobSchedulerService
 import com.lody.virtual.server.location.VirtualLocationService
 import com.lody.virtual.server.log.VLoggingManagerService
 import com.lody.virtual.server.notification.VNotificationManagerService
+import com.lody.virtual.server.permission.VPermissionService
 import com.lody.virtual.server.pm.VAppManagerService
 import com.lody.virtual.server.pm.VPackageManagerService
 import com.lody.virtual.server.pm.VUserManagerService
@@ -67,6 +68,9 @@ class BinderProvider : ContentProvider() {
 
         VectorManagerService.get().start()
         addService(ServiceManagerNative.VIRTUAL_HOOK, VHookManagerService.get())
+
+        VPermissionService.get().systemReady()
+        addService(ServiceManagerNative.VIRTUAL_PERMISSIONS, VPermissionService.get())
         return true
     }
 
