@@ -11,7 +11,6 @@ import android.content.SharedPreferences;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.PowerManager;
@@ -19,7 +18,6 @@ import android.os.SystemClock;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.Toast;
@@ -44,8 +42,9 @@ import io.virtualapp.abs.ui.VUiKit;
 import io.virtualapp.settings.AdvancedSettingsActivity;
 import io.virtualapp.settings.SettingsActivity;
 import jonathanfinerty.once.Once;
+import timber.log.Timber;
 
-import static io.virtualapp.XApp.XPOSED_INSTALLER_PACKAGE;
+import static io.virtualapp.XApp.VECTOR_MANAGER_PACKAGE;
 
 import java.util.Set;
 
@@ -59,41 +58,41 @@ public class NewHomeActivity extends NexusLauncherActivity {
     private static final String SHOW_DOZE_ALERT_KEY = "SHOW_DOZE_ALERT_KEY";
     private static final String WALLPAPER_FILE_NAME = "wallpaper.png";
     public static final Set<String> PERMISSIONS = Set.of(
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACTIVITY_RECOGNITION",
-        "android.permission.BLUETOOTH_ADVERTISE",
-        "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.BLUETOOTH_SCAN",
-        "android.permission.BODY_SENSORS",
-        "android.permission.CALL_PHONE",
-        "android.permission.CAMERA",
-        "android.permission.GET_ACCOUNTS",
-        "android.permission.MANAGE_EXTERNAL_STORAGE",
-        "android.permission.NEARBY_WIFI_DEVICES",
-        "android.permission.POST_NOTIFICATIONS",
-        "android.permission.PROCESS_OUTGOING_CALLS",
-        "android.permission.READ_CALENDAR",
-        "android.permission.READ_CALL_LOG",
-        "android.permission.READ_CONTACTS",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_AUDIO",
-        "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_PHONE_NUMBERS",
-        "android.permission.READ_PHONE_STATE",
-        "android.permission.READ_SMS",
-        "android.permission.RECEIVE_MMS",
-        "android.permission.RECEIVE_SMS",
-        "android.permission.RECEIVE_WAP_PUSH",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.SEND_SMS",
-        "android.permission.USE_SIP",
-        "android.permission.WRITE_CALENDAR",
-        "android.permission.WRITE_CALL_LOG",
-        "android.permission.WRITE_CONTACTS",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.WRITE_SMS"
+            "android.permission.ACCESS_COARSE_LOCATION",
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACTIVITY_RECOGNITION",
+            "android.permission.BLUETOOTH_ADVERTISE",
+            "android.permission.BLUETOOTH_CONNECT",
+            "android.permission.BLUETOOTH_SCAN",
+            "android.permission.BODY_SENSORS",
+            "android.permission.CALL_PHONE",
+            "android.permission.CAMERA",
+            "android.permission.GET_ACCOUNTS",
+            "android.permission.MANAGE_EXTERNAL_STORAGE",
+            "android.permission.NEARBY_WIFI_DEVICES",
+            "android.permission.POST_NOTIFICATIONS",
+            "android.permission.PROCESS_OUTGOING_CALLS",
+            "android.permission.READ_CALENDAR",
+            "android.permission.READ_CALL_LOG",
+            "android.permission.READ_CONTACTS",
+            "android.permission.READ_EXTERNAL_STORAGE",
+            "android.permission.READ_MEDIA_AUDIO",
+            "android.permission.READ_MEDIA_IMAGES",
+            "android.permission.READ_MEDIA_VIDEO",
+            "android.permission.READ_PHONE_NUMBERS",
+            "android.permission.READ_PHONE_STATE",
+            "android.permission.READ_SMS",
+            "android.permission.RECEIVE_MMS",
+            "android.permission.RECEIVE_SMS",
+            "android.permission.RECEIVE_WAP_PUSH",
+            "android.permission.RECORD_AUDIO",
+            "android.permission.SEND_SMS",
+            "android.permission.USE_SIP",
+            "android.permission.WRITE_CALENDAR",
+            "android.permission.WRITE_CALL_LOG",
+            "android.permission.WRITE_CONTACTS",
+            "android.permission.WRITE_EXTERNAL_STORAGE",
+            "android.permission.WRITE_SMS"
     );
 
     private Handler mUiHandler;
@@ -124,19 +123,7 @@ public class NewHomeActivity extends NexusLauncherActivity {
         if (!VirtualCore.get().isXposedEnabled()) {
             return;
         }
-        boolean isXposedInstalled = false;
-        try {
-            isXposedInstalled = VirtualCore.get().isAppInstalled(XPOSED_INSTALLER_PACKAGE);
-            File oldXposedInstallerApk = getFileStreamPath("XposedInstaller_1_31.apk");
-            if (oldXposedInstallerApk.exists()) {
-                VirtualCore.get().uninstallPackage(XPOSED_INSTALLER_PACKAGE);
-                oldXposedInstallerApk.delete();
-                isXposedInstalled = false;
-                Log.d(TAG, "remove xposed installer success!");
-            }
-        } catch (Throwable e) {
-            VLog.d(TAG, "remove xposed install failed.", e);
-        }
+        boolean isXposedInstalled = VirtualCore.get().isAppInstalled(VECTOR_MANAGER_PACKAGE);
 
         if (!isXposedInstalled) {
             ProgressDialog dialog = new ProgressDialog(this);
@@ -145,32 +132,32 @@ public class NewHomeActivity extends NexusLauncherActivity {
             dialog.show();
 
             VUiKit.defer().when(() -> {
-                File xposedInstallerApk = getFileStreamPath("XposedInstaller_5_8.apk");
-                if (!xposedInstallerApk.exists()) {
+                File vectorInstallerApk = getFileStreamPath("VectorManager_2.2.apk");
+                if (!vectorInstallerApk.exists()) {
                     InputStream input = null;
                     OutputStream output = null;
                     try {
-                        input = getApplicationContext().getAssets().open("XposedInstaller_3.1.5.apk_");
-                        output = new FileOutputStream(xposedInstallerApk);
+                        input = getApplicationContext().getAssets().open("VectorManager_2.2.apk_");
+                        output = new FileOutputStream(vectorInstallerApk);
                         byte[] buffer = new byte[1024];
                         int length;
                         while ((length = input.read(buffer)) > 0) {
                             output.write(buffer, 0, length);
                         }
                     } catch (Throwable e) {
-                        VLog.e(TAG, "copy file error", e);
+                        Timber.e(e, "copy file error");
                     } finally {
                         FileUtils.closeQuietly(input);
                         FileUtils.closeQuietly(output);
                     }
                 }
 
-                if (xposedInstallerApk.isFile() && !DeviceUtil.isMeizuBelowN()) {
+                if (vectorInstallerApk.isFile() && !DeviceUtil.isMeizuBelowN()) {
                     try {
-                        if ("8537fb219128ead3436cc19ff35cfb2e".equals(MD5Utils.getFileMD5String(xposedInstallerApk))) {
-                            VirtualCore.get().installPackage(xposedInstallerApk.getPath(), InstallStrategy.TERMINATE_IF_EXIST);
+                        if ("bed31062577befd416a242c654cb798e".equals(MD5Utils.getFileMD5String(vectorInstallerApk))) {
+                            VirtualCore.get().installPackage(vectorInstallerApk.getPath(), InstallStrategy.TERMINATE_IF_EXIST);
                         } else {
-                            VLog.w(TAG, "unknown Xposed installer, ignore!");
+                            VLog.w(TAG, "Unknown Vector installer, ignore!");
                         }
                     } catch (Throwable ignored) {
                     }
@@ -190,7 +177,7 @@ public class NewHomeActivity extends NexusLauncherActivity {
         try {
             dialog.dismiss();
         } catch (Throwable e) {
-            e.printStackTrace();
+            Timber.e(e);
         }
     }
 
@@ -275,9 +262,6 @@ public class NewHomeActivity extends NexusLauncherActivity {
     }
 
     private void alertForDoze() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            return;
-        }
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         if (powerManager == null) {
             return;
@@ -317,7 +301,7 @@ public class NewHomeActivity extends NexusLauncherActivity {
                 try {
                     alertDialog.show();
                 } catch (Throwable ignored) {
-                    ignored.printStackTrace();
+                    Timber.e(ignored);
                 }
             }, 1000);
         }
@@ -356,22 +340,22 @@ public class NewHomeActivity extends NexusLauncherActivity {
         }
         final var builder = new AlertDialog.Builder(getContext());
         builder.setTitle(R.string.welcome)
-            .setMessage(R.string.welcome_message)
-            .setPositiveButton(android.R.string.ok, (dialog, which) -> {
-                requestPermissions(PERMISSIONS.toArray(new String[] {}), 0);
-            })
-            .setNegativeButton(R.string.why, (dialog, which) -> {
-                builder.setMessage(R.string.welcome_permissions_request_explanation)
-                    .setNegativeButton(R.string.request_later, null)
-                    .create()
-                    .show();
-            })
-            .setCancelable(false)
-            .create()
-            .show();
+                .setMessage(R.string.welcome_message)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                    requestPermissions(PERMISSIONS.toArray(new String[]{}), 0);
+                })
+                .setNegativeButton(R.string.why, (dialog, which) -> {
+                    builder.setMessage(R.string.welcome_permissions_request_explanation)
+                            .setNegativeButton(R.string.request_later, null)
+                            .create()
+                            .show();
+                })
+                .setCancelable(false)
+                .create()
+                .show();
 
         prefs.edit()
-            .putBoolean(firstLaunchPref, false)
-            .commit();
+                .putBoolean(firstLaunchPref, false)
+                .commit();
     }
 }

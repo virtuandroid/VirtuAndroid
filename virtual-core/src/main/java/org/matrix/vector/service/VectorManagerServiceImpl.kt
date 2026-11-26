@@ -103,7 +103,7 @@ class VectorManagerServiceImpl(val backingFile: File) : IVectorManagerService() 
     override fun getFrameworkVersionCode() = 1L
 
     override fun getFrameworkVersionName(): String {
-        return "1.0.0-VirtualXposed"
+        return "1.0.0-VirtuAndroid"
     }
 
     override fun getBuildStamp(): String {
@@ -112,7 +112,7 @@ class VectorManagerServiceImpl(val backingFile: File) : IVectorManagerService() 
     }
 
     override fun getLibxposedApiVersion(): Int {
-        return 102 // TODO CHECK/UPDATE LATEST SUPPORTED VERSION
+        return 82
     }
 
     override fun isSystemServerAttached(): Boolean {

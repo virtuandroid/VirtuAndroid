@@ -15,10 +15,7 @@ import timber.log.Timber;
  * @author Lody
  */
 public class XApp extends Application {
-
-    private static final String TAG = "XApp";
-
-    public static final String XPOSED_INSTALLER_PACKAGE = "de.robv.android.xposed.installer";
+    public static final String VECTOR_MANAGER_PACKAGE = "org.matrix.vector.manager";
 
     private static XApp gApp;
 

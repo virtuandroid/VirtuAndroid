@@ -8,7 +8,7 @@ import com.lody.virtual.os.VEnvironment;
 import jonathanfinerty.once.Once;
 import me.weishu.exposed.LogcatService;
 
-import static io.virtualapp.XApp.XPOSED_INSTALLER_PACKAGE;
+import static io.virtualapp.XApp.VECTOR_MANAGER_PACKAGE;
 
 /**
  * @author weishu
@@ -42,7 +42,7 @@ public class BaseVirtualInitializer extends VirtualCore.VirtualInitializer {
         virtualCore.setTaskDescriptionDelegate(new MyTaskDescDelegate());
 
         // ensure the logcat service alive when every virtual process start.
-        LogcatService.start(application, VEnvironment.getDataUserPackageDirectory(0, XPOSED_INSTALLER_PACKAGE));
+        LogcatService.start(application, VEnvironment.getDataUserPackageDirectory(0, VECTOR_MANAGER_PACKAGE));
     }
 
     @Override
